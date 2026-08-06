@@ -3,7 +3,8 @@
 
     <application
         android:label="Saarthi"
-        android:allowBackup="true">
+        android:allowBackup="true"
+        android:name=".SaarthiApp">
 
         <activity
             android:name=".MainActivity"
