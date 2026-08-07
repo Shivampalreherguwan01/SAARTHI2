@@ -1,21 +1,25 @@
 package com.saarthi.app
 
-import android.app.Activity
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
-import android.speech.tts.TextToSpeech
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
-import java.util.Locale
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 
-class MainActivity : Activity(), TextToSpeech.OnInitListener {
+class MainActivity : AppCompatActivity() {
 
-    private lateinit var tts: TextToSpeech
+    private val permissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        tts = TextToSpeech(this, this)
 
         val layout = LinearLayout(this)
         layout.orientation = LinearLayout.VERTICAL
@@ -26,9 +30,9 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         textView.textSize = 28f
 
         val button = Button(this)
-        button.text = "Bolo Saarthi"
+        button.text = "Saarthi Activate Karo"
         button.setOnClickListener {
-            tts.speak("Hello Shivam, main Saarthi hoon", TextToSpeech.QUEUE_FLUSH, null, null)
+            requestPermissionsAndStart()
         }
 
         layout.addView(textView)
@@ -36,15 +40,14 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         setContentView(layout)
     }
 
-    override fun onInit(status: Int) {
-        if (status == TextToSpeech.SUCCESS) {
-            tts.language = Locale("hi", "IN")
+    private fun requestPermissionsAndStart() {
+        val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
+        if (Build.VERSION.SDK_INT >= 33) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
-    }
+        permissionLauncher.launch(permissions.toTypedArray())
 
-    override fun onDestroy() {
-        tts.stop()
-        tts.shutdown()
-        super.onDestroy()
+        val serviceIntent = Intent(this, WakeWordService::class.java)
+        ContextCompat.startForegroundService(this, serviceIntent)
     }
 }
