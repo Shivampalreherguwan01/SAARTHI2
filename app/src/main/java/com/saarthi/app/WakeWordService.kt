@@ -2,25 +2,25 @@ package com.saarthi.app
 
 import android.app.*
 import android.content.Intent
-import android.os.Bundle
-import android.os.Handler
 import android.os.IBinder
-import android.os.Looper
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
 import androidx.core.app.NotificationCompat
+import org.vosk.Model
+import org.vosk.Recognizer
+import org.vosk.android.RecognitionListener
+import org.vosk.android.SpeechService
+import org.vosk.android.StorageService
+import org.json.JSONObject
 
-class WakeWordService : Service() {
+class WakeWordService : Service(), RecognitionListener {
 
-    private var speechRecognizer: SpeechRecognizer? = null
-    private val handler = Handler(Looper.getMainLooper())
+    private var model: Model? = null
+    private var speechService: SpeechService? = null
     private val CHANNEL_ID = "saarthi_channel"
 
     override fun onCreate() {
         super.onCreate()
         startForegroundServiceWithNotification()
-        handler.postDelayed({ startListening() }, 500)
+        loadModel()
     }
 
     private fun startForegroundServiceWithNotification() {
@@ -32,62 +32,66 @@ class WakeWordService : Service() {
 
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Saarthi")
-            .setContentText("Sun raha hoon...")
+            .setContentText("Model load ho raha hai...")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .build()
 
         startForeground(1, notification)
     }
 
+    private fun loadModel() {
+        StorageService.unpack(this, "model", "model",
+            { loadedModel ->
+                model = loadedModel
+                startListening()
+            },
+            { exception ->
+                updateNotification("Model load error: ${exception.message}")
+            }
+        )
+    }
+
     private fun startListening() {
         try {
-            if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-                updateNotification("Speech recognition available nahi hai is phone par")
-                return
-            }
-
-            speechRecognizer?.destroy()
-            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
-
-            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "hi-IN")
-            intent.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
-
-            speechRecognizer?.setRecognitionListener(object : RecognitionListener {
-                override fun onResults(results: Bundle?) {
-                    val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                    val text = matches?.get(0)?.lowercase() ?: ""
-                    if (text.contains("saarthi") || text.contains("सारथी") || text.contains("sarthi")) {
-                        updateNotification("Ji, bataiye!")
-                    } else {
-                        updateNotification("Sun raha hoon...")
-                    }
-                    scheduleRestart()
-                }
-
-                override fun onError(error: Int) {
-                    scheduleRestart()
-                }
-
-                override fun onReadyForSpeech(params: Bundle?) {}
-                override fun onBeginningOfSpeech() {}
-                override fun onRmsChanged(rmsdB: Float) {}
-                override fun onBufferReceived(buffer: ByteArray?) {}
-                override fun onEndOfSpeech() {}
-                override fun onPartialResults(partialResults: Bundle?) {}
-                override fun onEvent(eventType: Int, params: Bundle?) {}
-            })
-
-            speechRecognizer?.startListening(intent)
+            val rec = Recognizer(model, 16000.0f)
+            speechService = SpeechService(rec, 16000.0f)
+            speechService?.startListening(this)
+            updateNotification("Sun raha hoon...")
         } catch (e: Exception) {
             updateNotification("Error: ${e.message}")
-            scheduleRestart()
         }
     }
 
-    private fun scheduleRestart() {
-        handler.postDelayed({ startListening() }, 1000)
+    override fun onResult(hypothesis: String?) {
+        checkForWakeWord(hypothesis)
+    }
+
+    override fun onPartialResult(hypothesis: String?) {
+        checkForWakeWord(hypothesis)
+    }
+
+    override fun onFinalResult(hypothesis: String?) {
+        checkForWakeWord(hypothesis)
+    }
+
+    private fun checkForWakeWord(hypothesis: String?) {
+        if (hypothesis == null) return
+        try {
+            val json = JSONObject(hypothesis)
+            val text = (json.optString("text", "") + json.optString("partial", "")).lowercase()
+            if (text.contains("saarthi") || text.contains("sarthi") || text.contains("सारथी") || text.contains("सारथि")) {
+                updateNotification("Ji, bataiye!")
+            }
+        } catch (e: Exception) {
+        }
+    }
+
+    override fun onError(exception: Exception?) {
+        updateNotification("Error: ${exception?.message}")
+    }
+
+    override fun onTimeout() {
+        speechService?.startListening(this)
     }
 
     private fun updateNotification(text: String) {
@@ -101,8 +105,8 @@ class WakeWordService : Service() {
     }
 
     override fun onDestroy() {
-        handler.removeCallbacksAndMessages(null)
-        speechRecognizer?.destroy()
+        speechService?.stop()
+        speechService?.shutdown()
         super.onDestroy()
     }
 
