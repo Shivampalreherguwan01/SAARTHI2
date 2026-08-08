@@ -1,8 +1,11 @@
 package com.saarthi.app
 
 import android.app.*
+import android.content.Context
 import android.content.Intent
 import android.os.IBinder
+import android.os.VibrationEffect
+import android.os.Vibrator
 import androidx.core.app.NotificationCompat
 import org.vosk.Model
 import org.vosk.Recognizer
@@ -102,6 +105,8 @@ class WakeWordService : Service(), RecognitionListener {
             val text = (json.optString("text", "") + json.optString("partial", "")).lowercase()
             if (text.contains("saarthi") || text.contains("sarthi") || text.contains("सारथी") || text.contains("सारथि")) {
                 updateNotification("Ji, bataiye!")
+                val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+                vibrator.vibrate(VibrationEffect.createOneShot(300, VibrationEffect.DEFAULT_AMPLITUDE))
             }
         } catch (e: Exception) {
         }
