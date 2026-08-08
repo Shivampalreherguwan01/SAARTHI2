@@ -2,8 +2,10 @@ package com.saarthi.app
 
 import android.Manifest
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -19,11 +21,16 @@ class MainActivity : AppCompatActivity() {
     ) { results ->
         val micGranted = results[Manifest.permission.RECORD_AUDIO] ?: false
         if (micGranted) {
-            val serviceIntent = Intent(this, WakeWordService::class.java)
-            ContextCompat.startForegroundService(this, serviceIntent)
+            checkOverlayAndStart()
         } else {
             Toast.makeText(this, "Microphone permission zaroori hai", Toast.LENGTH_LONG).show()
         }
+    }
+
+    private val overlayLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        startService()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -54,5 +61,22 @@ class MainActivity : AppCompatActivity() {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
         permissionLauncher.launch(permissions.toTypedArray())
+    }
+
+    private fun checkOverlayAndStart() {
+        if (!Settings.canDrawOverlays(this)) {
+            val intent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName")
+            )
+            overlayLauncher.launch(intent)
+        } else {
+            startService()
+        }
+    }
+
+    private fun startService() {
+        val serviceIntent = Intent(this, WakeWordService::class.java)
+        ContextCompat.startForegroundService(this, serviceIntent)
     }
 }
