@@ -38,8 +38,6 @@ class WakeWordService : Service(), RecognitionListener {
     private var overlayAdded = false
     private val handler = Handler(Looper.getMainLooper())
 
-    private val grammar = "[\"saarthi\", \"sarthi\", \"sarathi\", \"[unk]\"]"
-
     override fun onCreate() {
         super.onCreate()
         startForegroundServiceWithNotification()
@@ -60,7 +58,11 @@ class WakeWordService : Service(), RecognitionListener {
     }
 
     private fun setupOverlay() {
-        if (!android.provider.Settings.canDrawOverlays(this)) return
+        val canDraw = android.provider.Settings.canDrawOverlays(this)
+        if (!canDraw) {
+            updateNotification("Overlay permission nahi mili")
+            return
+        }
 
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         overlayView = TextView(this).apply {
@@ -94,6 +96,7 @@ class WakeWordService : Service(), RecognitionListener {
             windowManager?.addView(overlayView, params)
             overlayAdded = true
         } catch (e: Exception) {
+            updateNotification("Overlay add error: ${e.message}")
         }
     }
 
@@ -150,7 +153,7 @@ class WakeWordService : Service(), RecognitionListener {
 
     private fun startListening() {
         try {
-            val rec = Recognizer(model, 16000.0f, grammar)
+            val rec = Recognizer(model, 16000.0f)
             speechService = SpeechService(rec, 16000.0f)
             speechService?.startListening(this)
             updateNotification("Sun raha hoon...")
@@ -160,24 +163,27 @@ class WakeWordService : Service(), RecognitionListener {
     }
 
     override fun onResult(hypothesis: String?) {
-        checkForWakeWord(hypothesis)
+        handleHeard(hypothesis)
     }
 
     override fun onPartialResult(hypothesis: String?) {
-        checkForWakeWord(hypothesis)
+        handleHeard(hypothesis)
     }
 
     override fun onFinalResult(hypothesis: String?) {
-        checkForWakeWord(hypothesis)
+        handleHeard(hypothesis)
     }
 
-    private fun checkForWakeWord(hypothesis: String?) {
+    private fun handleHeard(hypothesis: String?) {
         if (hypothesis == null) return
         try {
             val json = JSONObject(hypothesis)
-            val text = (json.optString("text", "") + " " + json.optString("partial", "")).lowercase()
+            val text = (json.optString("text", "") + json.optString("partial", "")).lowercase()
+            if (text.isBlank()) return
+
+            updateNotification("Suna: $text")
+
             if (text.contains("saarthi") || text.contains("sarthi") || text.contains("sarathi")) {
-                updateNotification("Ji, bataiye!")
                 showActivatedAnimation()
                 val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
                 vibrator.vibrate(VibrationEffect.createOneShot(300, VibrationEffect.DEFAULT_AMPLITUDE))
