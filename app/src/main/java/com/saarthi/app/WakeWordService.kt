@@ -151,11 +151,9 @@ class WakeWordService : Service(), RecognitionListener {
         startForeground(1, notification)
     }
 
-    private val grammar = "[\"saarthi\", \"sarthi\", \"sarathi\", \"[unk]\"]"
-
     private fun startListening() {
         try {
-            val rec = Recognizer(model, 16000.0f, grammar)
+            val rec = Recognizer(model, 16000.0f)
             speechService = SpeechService(rec, 16000.0f)
             speechService?.startListening(this)
             updateNotification("Sun raha hoon...")
