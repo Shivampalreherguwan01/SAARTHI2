@@ -22,6 +22,8 @@ class WakeWordService : Service(), RecognitionListener {
     private var speechService: SpeechService? = null
     private val CHANNEL_ID = "saarthi_channel"
 
+    private val wakeWords = listOf("saarthi", "sarthi", "sarathi", "सारथी", "सारथि", "सारथ", "सारती", "सरती", "सारदी")
+
     override fun onCreate() {
         super.onCreate()
         startForegroundServiceWithNotification()
@@ -87,25 +89,29 @@ class WakeWordService : Service(), RecognitionListener {
     }
 
     override fun onResult(hypothesis: String?) {
-        showWhatWasHeard(hypothesis)
+        checkForWakeWord(hypothesis)
     }
 
     override fun onPartialResult(hypothesis: String?) {
+        checkForWakeWord(hypothesis)
     }
 
     override fun onFinalResult(hypothesis: String?) {
-        showWhatWasHeard(hypothesis)
+        checkForWakeWord(hypothesis)
     }
 
-    private fun showWhatWasHeard(hypothesis: String?) {
+    private fun checkForWakeWord(hypothesis: String?) {
         if (hypothesis == null) return
         try {
             val json = JSONObject(hypothesis)
-            val text = json.optString("text", "")
-            if (text.isNotBlank()) {
-                updateNotification("Suna: $text")
-                val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-                vibrator.vibrate(VibrationEffect.createOneShot(150, VibrationEffect.DEFAULT_AMPLITUDE))
+            val text = (json.optString("text", "") + " " + json.optString("partial", "")).lowercase()
+            for (word in wakeWords) {
+                if (text.contains(word)) {
+                    updateNotification("Ji, bataiye!")
+                    val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+                    vibrator.vibrate(VibrationEffect.createOneShot(300, VibrationEffect.DEFAULT_AMPLITUDE))
+                    return
+                }
             }
         } catch (e: Exception) {
         }
