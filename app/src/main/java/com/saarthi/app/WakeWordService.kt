@@ -8,8 +8,10 @@ import org.vosk.Model
 import org.vosk.Recognizer
 import org.vosk.android.RecognitionListener
 import org.vosk.android.SpeechService
-import org.vosk.android.StorageService
 import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
+import kotlin.concurrent.thread
 
 class WakeWordService : Service(), RecognitionListener {
 
@@ -20,7 +22,38 @@ class WakeWordService : Service(), RecognitionListener {
     override fun onCreate() {
         super.onCreate()
         startForegroundServiceWithNotification()
-        loadModel()
+        thread {
+            try {
+                val modelDir = File(filesDir, "model")
+                if (!modelDir.exists()) {
+                    updateNotification("Model copy ho raha hai...")
+                    copyAssetFolder("model", modelDir.absolutePath)
+                }
+                model = Model(modelDir.absolutePath)
+                startListening()
+            } catch (e: Exception) {
+                updateNotification("Model load error: ${e.message}")
+            }
+        }
+    }
+
+    private fun copyAssetFolder(srcPath: String, dstPath: String) {
+        val files = assets.list(srcPath) ?: return
+        File(dstPath).mkdirs()
+        for (fileName in files) {
+            val srcFilePath = "$srcPath/$fileName"
+            val dstFilePath = "$dstPath/$fileName"
+            val subFiles = assets.list(srcFilePath)
+            if (subFiles != null && subFiles.isNotEmpty()) {
+                copyAssetFolder(srcFilePath, dstFilePath)
+            } else {
+                assets.open(srcFilePath).use { input ->
+                    FileOutputStream(dstFilePath).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+            }
+        }
     }
 
     private fun startForegroundServiceWithNotification() {
@@ -32,23 +65,11 @@ class WakeWordService : Service(), RecognitionListener {
 
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Saarthi")
-            .setContentText("Model load ho raha hai...")
+            .setContentText("Shuru ho raha hai...")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .build()
 
         startForeground(1, notification)
-    }
-
-    private fun loadModel() {
-        StorageService.unpack(this, "model", "model",
-            { loadedModel ->
-                model = loadedModel
-                startListening()
-            },
-            { exception ->
-                updateNotification("Model load error: ${exception.message}")
-            }
-        )
     }
 
     private fun startListening() {
@@ -58,7 +79,7 @@ class WakeWordService : Service(), RecognitionListener {
             speechService?.startListening(this)
             updateNotification("Sun raha hoon...")
         } catch (e: Exception) {
-            updateNotification("Error: ${e.message}")
+            updateNotification("Listen error: ${e.message}")
         }
     }
 
