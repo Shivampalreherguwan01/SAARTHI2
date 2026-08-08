@@ -5,13 +5,17 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
+import android.view.animation.AlphaAnimation
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
 import org.vosk.Model
@@ -31,13 +35,15 @@ class WakeWordService : Service(), RecognitionListener {
 
     private var overlayView: TextView? = null
     private var windowManager: WindowManager? = null
+    private var overlayAdded = false
+    private val handler = Handler(Looper.getMainLooper())
 
     private val grammar = "[\"saarthi\", \"sarthi\", \"sarathi\", \"[unk]\"]"
 
     override fun onCreate() {
         super.onCreate()
         startForegroundServiceWithNotification()
-        addOverlayIndicator()
+        setupOverlay()
         thread {
             try {
                 val modelDir = File(filesDir, "model")
@@ -53,16 +59,21 @@ class WakeWordService : Service(), RecognitionListener {
         }
     }
 
-    private fun addOverlayIndicator() {
+    private fun setupOverlay() {
         if (!android.provider.Settings.canDrawOverlays(this)) return
 
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         overlayView = TextView(this).apply {
-            text = "  🎤 Saarthi  "
-            setBackgroundColor(Color.parseColor("#CC000000"))
+            text = "✨ Saarthi ✨"
+            val bg = GradientDrawable()
+            bg.cornerRadius = 40f
+            bg.setColor(Color.parseColor("#CC1A1A2E"))
+            bg.setStroke(3, Color.parseColor("#00E5FF"))
+            background = bg
             setTextColor(Color.parseColor("#00E5FF"))
-            textSize = 12f
-            setPadding(16, 8, 16, 8)
+            textSize = 14f
+            setPadding(40, 20, 40, 20)
+            visibility = View.GONE
         }
 
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
@@ -77,25 +88,28 @@ class WakeWordService : Service(), RecognitionListener {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
             PixelFormat.TRANSLUCENT
         )
-        params.gravity = Gravity.TOP or Gravity.END
-        params.x = 10
-        params.y = 60
+        params.gravity = Gravity.CENTER
 
         try {
             windowManager?.addView(overlayView, params)
+            overlayAdded = true
         } catch (e: Exception) {
         }
     }
 
-    private fun setOverlayState(active: Boolean) {
-        overlayView?.post {
-            if (active) {
-                overlayView?.text = "  🎤 SAARTHI  "
-                overlayView?.setTextColor(Color.parseColor("#00FF00"))
-            } else {
-                overlayView?.text = "  🎤 Saarthi  "
-                overlayView?.setTextColor(Color.parseColor("#00E5FF"))
-            }
+    private fun showActivatedAnimation() {
+        if (!overlayAdded) return
+        handler.post {
+            overlayView?.visibility = View.VISIBLE
+            val pulse = AlphaAnimation(0.3f, 1.0f)
+            pulse.duration = 400
+            pulse.repeatMode = AlphaAnimation.REVERSE
+            pulse.repeatCount = 3
+            overlayView?.startAnimation(pulse)
+
+            handler.postDelayed({
+                overlayView?.visibility = View.GONE
+            }, 3000)
         }
     }
 
@@ -164,7 +178,7 @@ class WakeWordService : Service(), RecognitionListener {
             val text = (json.optString("text", "") + " " + json.optString("partial", "")).lowercase()
             if (text.contains("saarthi") || text.contains("sarthi") || text.contains("sarathi")) {
                 updateNotification("Ji, bataiye!")
-                setOverlayState(true)
+                showActivatedAnimation()
                 val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
                 vibrator.vibrate(VibrationEffect.createOneShot(300, VibrationEffect.DEFAULT_AMPLITUDE))
             }
@@ -193,7 +207,10 @@ class WakeWordService : Service(), RecognitionListener {
     override fun onDestroy() {
         speechService?.stop()
         speechService?.shutdown()
-        overlayView?.let { windowManager?.removeView(it) }
+        handler.removeCallbacksAndMessages(null)
+        if (overlayAdded) {
+            overlayView?.let { windowManager?.removeView(it) }
+        }
         super.onDestroy()
     }
 
