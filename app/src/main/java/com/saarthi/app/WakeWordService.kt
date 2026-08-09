@@ -37,6 +37,9 @@ class WakeWordService : Service(), RecognitionListener {
     private var windowManager: WindowManager? = null
     private var overlayAdded = false
     private val handler = Handler(Looper.getMainLooper())
+    private var lastTriggerTime = 0L
+
+    private val targetWords = listOf("saarthi", "sarthi", "sarathi")
 
     override fun onCreate() {
         super.onCreate()
@@ -49,7 +52,6 @@ class WakeWordService : Service(), RecognitionListener {
                     updateNotification("Model copy ho raha hai...")
                     copyAssetFolder("model", modelDir.absolutePath)
                 }
-                updateNotification("Model load ho raha hai...")
                 model = Model(modelDir.absolutePath)
                 startListening()
             } catch (e: Exception) {
@@ -161,19 +163,59 @@ class WakeWordService : Service(), RecognitionListener {
         handleHeard(hypothesis)
     }
 
+    private fun editDistance(a: String, b: String): Int {
+        val dp = Array(a.length + 1) { IntArray(b.length + 1) }
+        for (i in 0..a.length) dp[i][0] = i
+        for (j in 0..b.length) dp[0][j] = j
+        for (i in 1..a.length) {
+            for (j in 1..b.length) {
+                dp[i][j] = if (a[i - 1] == b[j - 1]) {
+                    dp[i - 1][j - 1]
+                } else {
+                    1 + minOf(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1])
+                }
+            }
+        }
+        return dp[a.length][b.length]
+    }
+
+    private fun isCloseToWakeWord(word: String): Boolean {
+        if (word.length < 2) return false
+        for (target in targetWords) {
+            val distance = editDistance(word, target)
+            val threshold = if (target.length <= 5) 2 else 3
+            if (distance <= threshold) return true
+        }
+        return false
+    }
+
     private fun handleHeard(hypothesis: String?) {
         if (hypothesis == null) return
         try {
             val json = JSONObject(hypothesis)
-            val text = (json.optString("text", "") + json.optString("partial", "")).lowercase()
+            val text = (json.optString("text", "") + " " + json.optString("partial", "")).lowercase().trim()
             if (text.isBlank()) return
 
             updateNotification("Suna: $text")
 
-            if (text.contains("saarthi") || text.contains("sarthi") || text.contains("sarathi") || text.contains("sarti")) {
-                showActivatedAnimation()
-                val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-                vibrator.vibrate(VibrationEffect.createOneShot(300, VibrationEffect.DEFAULT_AMPLITUDE))
+            val words = text.split(" ", "\n").filter { it.isNotBlank() }
+            var matched = false
+            for (word in words) {
+                if (isCloseToWakeWord(word)) {
+                    matched = true
+                    break
+                }
+            }
+
+            if (matched) {
+                val now = System.currentTimeMillis()
+                if (now - lastTriggerTime > 2000) {
+                    lastTriggerTime = now
+                    updateNotification("Ji, bataiye!")
+                    showActivatedAnimation()
+                    val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+                    vibrator.vibrate(VibrationEffect.createOneShot(300, VibrationEffect.DEFAULT_AMPLITUDE))
+                }
             }
         } catch (e: Exception) {
         }
