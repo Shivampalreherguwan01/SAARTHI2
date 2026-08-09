@@ -86,6 +86,14 @@ class WakeWordService : Service() {
                     for (i in 0 until windowSamples) {
                         ordered[i] = ringBuffer[(writePos + i) % windowSamples]
                     }
+
+                    val rms = VoicePrint.computeRMS(ordered)
+                    if (rms < 400.0) {
+                        updateNotification("Sun raha hoon... (chup hai)")
+                        Thread.sleep(300)
+                        continue
+                    }
+
                     val features = VoicePrint.extractFeatures(ordered)
                     var minDist = Float.MAX_VALUE
                     for (t in templates) {

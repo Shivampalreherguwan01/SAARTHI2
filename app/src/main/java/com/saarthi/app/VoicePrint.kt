@@ -4,6 +4,12 @@ import kotlin.math.log10
 import kotlin.math.sqrt
 
 object VoicePrint {
+    fun computeRMS(audio: ShortArray): Double {
+        var sum = 0.0
+        for (s in audio) sum += (s.toDouble() * s.toDouble())
+        return sqrt(sum / audio.size)
+    }
+
     const val SAMPLE_RATE = 16000
     const val FRAME_SIZE = 320
     const val HOP_SIZE = 160
