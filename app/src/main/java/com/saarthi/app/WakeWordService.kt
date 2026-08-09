@@ -7,25 +7,30 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
-import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.view.animation.AlphaAnimation
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
+import org.vosk.Model
+import org.vosk.Recognizer
+import org.vosk.android.RecognitionListener
+import org.vosk.android.SpeechService
+import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
+import kotlin.concurrent.thread
 
-class WakeWordService : Service() {
+class WakeWordService : Service(), RecognitionListener {
 
-    private var speechRecognizer: SpeechRecognizer? = null
+    private var model: Model? = null
+    private var speechService: SpeechService? = null
     private val CHANNEL_ID = "saarthi_channel"
 
     private var overlayView: TextView? = null
@@ -37,7 +42,20 @@ class WakeWordService : Service() {
         super.onCreate()
         startForegroundServiceWithNotification()
         setupOverlay()
-        handler.postDelayed({ startListening() }, 500)
+        thread {
+            try {
+                val modelDir = File(filesDir, "model")
+                if (!modelDir.exists()) {
+                    updateNotification("Model copy ho raha hai...")
+                    copyAssetFolder("model", modelDir.absolutePath)
+                }
+                updateNotification("Model load ho raha hai...")
+                model = Model(modelDir.absolutePath)
+                startListening()
+            } catch (e: Exception) {
+                updateNotification("Model load error: ${e.message}")
+            }
+        }
     }
 
     private fun setupOverlay() {
@@ -87,6 +105,25 @@ class WakeWordService : Service() {
         }
     }
 
+    private fun copyAssetFolder(srcPath: String, dstPath: String) {
+        val files = assets.list(srcPath) ?: return
+        File(dstPath).mkdirs()
+        for (fileName in files) {
+            val srcFilePath = "$srcPath/$fileName"
+            val dstFilePath = "$dstPath/$fileName"
+            val subFiles = assets.list(srcFilePath)
+            if (subFiles != null && subFiles.isNotEmpty()) {
+                copyAssetFolder(srcFilePath, dstFilePath)
+            } else {
+                assets.open(srcFilePath).use { input ->
+                    FileOutputStream(dstFilePath).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+            }
+        }
+    }
+
     private fun startForegroundServiceWithNotification() {
         val channel = NotificationChannel(
             CHANNEL_ID, "Saarthi Listening", NotificationManager.IMPORTANCE_HIGH
@@ -103,61 +140,51 @@ class WakeWordService : Service() {
 
     private fun startListening() {
         try {
-            if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-                updateNotification("Google recognizer available nahi hai")
-                return
-            }
-
-            speechRecognizer?.destroy()
-            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
-
-            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "hi-IN")
-            intent.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
-            intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-
-            speechRecognizer?.setRecognitionListener(object : RecognitionListener {
-                override fun onResults(results: Bundle?) {
-                    handleHeard(results)
-                    handler.postDelayed({ startListening() }, 300)
-                }
-                override fun onPartialResults(partialResults: Bundle?) {
-                    handleHeard(partialResults)
-                }
-                override fun onError(error: Int) {
-                    updateNotification("Error code: $error")
-                    handler.postDelayed({ startListening() }, 1000)
-                }
-                override fun onReadyForSpeech(params: Bundle?) {
-                    updateNotification("Sun raha hoon...")
-                }
-                override fun onBeginningOfSpeech() {}
-                override fun onRmsChanged(rmsdB: Float) {}
-                override fun onBufferReceived(buffer: ByteArray?) {}
-                override fun onEndOfSpeech() {}
-                override fun onEvent(eventType: Int, params: Bundle?) {}
-            })
-
-            speechRecognizer?.startListening(intent)
+            val rec = Recognizer(model, 16000.0f)
+            speechService = SpeechService(rec, 16000.0f)
+            speechService?.startListening(this)
+            updateNotification("Sun raha hoon...")
         } catch (e: Exception) {
-            updateNotification("Exception: ${e.message}")
-            handler.postDelayed({ startListening() }, 1000)
+            updateNotification("Listen error: ${e.message}")
         }
     }
 
-    private fun handleHeard(bundle: Bundle?) {
-        val matches = bundle?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-        val text = matches?.get(0)?.lowercase() ?: return
-        if (text.isBlank()) return
+    override fun onResult(hypothesis: String?) {
+        handleHeard(hypothesis)
+    }
 
-        updateNotification("Suna: $text")
+    override fun onPartialResult(hypothesis: String?) {
+        handleHeard(hypothesis)
+    }
 
-        if (text.contains("saarthi") || text.contains("sarthi") || text.contains("sarathi") || text.contains("सारथी")) {
-            showActivatedAnimation()
-            val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-            vibrator.vibrate(VibrationEffect.createOneShot(300, VibrationEffect.DEFAULT_AMPLITUDE))
+    override fun onFinalResult(hypothesis: String?) {
+        handleHeard(hypothesis)
+    }
+
+    private fun handleHeard(hypothesis: String?) {
+        if (hypothesis == null) return
+        try {
+            val json = JSONObject(hypothesis)
+            val text = (json.optString("text", "") + json.optString("partial", "")).lowercase()
+            if (text.isBlank()) return
+
+            updateNotification("Suna: $text")
+
+            if (text.contains("saarthi") || text.contains("sarthi") || text.contains("sarathi") || text.contains("sarti")) {
+                showActivatedAnimation()
+                val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+                vibrator.vibrate(VibrationEffect.createOneShot(300, VibrationEffect.DEFAULT_AMPLITUDE))
+            }
+        } catch (e: Exception) {
         }
+    }
+
+    override fun onError(exception: Exception?) {
+        updateNotification("Error: ${exception?.message}")
+    }
+
+    override fun onTimeout() {
+        speechService?.startListening(this)
     }
 
     private fun updateNotification(text: String) {
@@ -171,7 +198,8 @@ class WakeWordService : Service() {
     }
 
     override fun onDestroy() {
-        speechRecognizer?.destroy()
+        speechService?.stop()
+        speechService?.shutdown()
         handler.removeCallbacksAndMessages(null)
         if (overlayAdded) {
             overlayView?.let { windowManager?.removeView(it) }
