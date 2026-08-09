@@ -37,7 +37,8 @@ class WakeWordService : Service() {
     private var lastTriggerTime = 0L
     private var running = true
 
-    private val THRESHOLD = 0.45f
+    private val THRESHOLD = 0.20f
+    private var consecutiveMatches = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -105,6 +106,13 @@ class WakeWordService : Service() {
                     updateNotification("Sun raha hoon... ($distStr)")
 
                     if (minDist < THRESHOLD) {
+                        consecutiveMatches++
+                    } else {
+                        consecutiveMatches = 0
+                    }
+
+                    if (consecutiveMatches >= 2) {
+                        consecutiveMatches = 0
                         val now = System.currentTimeMillis()
                         if (now - lastTriggerTime > 2500) {
                             lastTriggerTime = now
