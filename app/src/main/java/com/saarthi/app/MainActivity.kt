@@ -5,6 +5,8 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.widget.Button
 import android.widget.LinearLayout
@@ -15,6 +17,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 
 class MainActivity : AppCompatActivity() {
+
+    private lateinit var toggleButton: Button
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -44,10 +48,14 @@ class MainActivity : AppCompatActivity() {
         textView.text = "Saarthi Ready"
         textView.textSize = 28f
 
-        val button = Button(this)
-        button.text = "Saarthi Activate Karo"
-        button.setOnClickListener {
-            requestPermissionsAndStart()
+        toggleButton = Button(this)
+        toggleButton.setOnClickListener {
+            if (WakeWordService.isRunning) {
+                stopService(Intent(this, WakeWordService::class.java))
+                refreshButtonState()
+            } else {
+                requestPermissionsAndStart()
+            }
         }
 
         val trainButton = Button(this)
@@ -57,9 +65,24 @@ class MainActivity : AppCompatActivity() {
         }
 
         layout.addView(textView)
-        layout.addView(button)
+        layout.addView(toggleButton)
         layout.addView(trainButton)
         setContentView(layout)
+
+        refreshButtonState()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshButtonState()
+    }
+
+    private fun refreshButtonState() {
+        if (WakeWordService.isRunning) {
+            toggleButton.text = "Saarthi: ON (band karne ke liye dabaओ)"
+        } else {
+            toggleButton.text = "Saarthi: OFF (chalू karne ke liye dabaओ)"
+        }
     }
 
     private fun requestPermissionsAndStart() {
@@ -85,5 +108,6 @@ class MainActivity : AppCompatActivity() {
     private fun startService() {
         val serviceIntent = Intent(this, WakeWordService::class.java)
         ContextCompat.startForegroundService(this, serviceIntent)
+        Handler(Looper.getMainLooper()).postDelayed({ refreshButtonState() }, 500)
     }
 }

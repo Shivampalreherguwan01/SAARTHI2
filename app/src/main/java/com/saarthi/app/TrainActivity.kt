@@ -6,6 +6,7 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.Bundle
+import android.view.MotionEvent
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -16,9 +17,9 @@ import kotlin.concurrent.thread
 
 class TrainActivity : AppCompatActivity() {
 
-    private var currentSample = 1
     private lateinit var statusText: TextView
-    private lateinit var recordButton: Button
+    private var isRecording = false
+    private var recorder: AudioRecord? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -31,75 +32,103 @@ class TrainActivity : AppCompatActivity() {
         title.text = "Saarthi Train Karo"
         title.textSize = 24f
 
+        val instructions = TextView(this)
+        instructions.text = "Button dabाके rakho, 'Saarthi' bolo, chhod do. Jitni baar chaho utni baar record karo."
+        instructions.textSize = 14f
+        instructions.setPadding(0, 20, 0, 40)
+
         statusText = TextView(this)
-        statusText.textSize = 16f
-        statusText.setPadding(0, 30, 0, 60)
+        statusText.textSize = 18f
+        statusText.setPadding(0, 0, 0, 40)
         updateStatus()
 
-        recordButton = Button(this)
-        recordButton.text = "Record Sample $currentSample"
-        recordButton.setOnClickListener {
-            recordSample()
+        val recordButton = Button(this)
+        recordButton.text = "Dabाके Rakho aur Bolo"
+        recordButton.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    startRecording()
+                    recordButton.text = "Bol rahe hain..."
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    stopRecordingAndSave()
+                    recordButton.text = "Dabाके Rakho aur Bolo"
+                }
+            }
+            true
         }
 
+        val resetButton = Button(this)
+        resetButton.text = "Sab Hataओ (Reset)"
+        resetButton.setOnClickListener {
+            TemplateStore.clearAll(this)
+            updateStatus()
+            Toast.makeText(this, "Sab samples hata diye", Toast.LENGTH_SHORT).show()
+        }
+
+        val doneButton = Button(this)
+        doneButton.text = "Wapas Jao"
+        doneButton.setOnClickListener { finish() }
+
         layout.addView(title)
+        layout.addView(instructions)
         layout.addView(statusText)
         layout.addView(recordButton)
+        layout.addView(resetButton)
+        layout.addView(doneButton)
         setContentView(layout)
     }
 
     private fun updateStatus() {
         val saved = TemplateStore.countSaved(this)
-        statusText.text = "$saved / 5 samples saved"
+        statusText.text = "$saved samples save hue hain"
     }
 
-    private fun recordSample() {
+    private fun startRecording() {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED) {
             Toast.makeText(this, "Microphone permission chahiye", Toast.LENGTH_SHORT).show()
             return
         }
-
-        recordButton.isEnabled = false
-        recordButton.text = "Bol rahe hain... (2 second)"
-
+        isRecording = true
         thread {
             val sampleRate = VoicePrint.SAMPLE_RATE
             val bufferSize = AudioRecord.getMinBufferSize(
                 sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
             )
-            val recorder = AudioRecord(
+            recorder = AudioRecord(
                 MediaRecorder.AudioSource.MIC, sampleRate,
                 AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufferSize * 2
             )
-
-            val totalSamples = sampleRate * 2
-            val audioData = ShortArray(totalSamples)
-            recorder.startRecording()
-            var read = 0
-            while (read < totalSamples) {
-                val n = recorder.read(audioData, read, totalSamples - read)
-                if (n > 0) read += n
+            val collected = mutableListOf<Short>()
+            val chunk = ShortArray(800)
+            recorder?.startRecording()
+            while (isRecording) {
+                val n = recorder?.read(chunk, 0, chunk.size) ?: 0
+                if (n > 0) {
+                    for (i in 0 until n) collected.add(chunk[i])
+                }
             }
-            recorder.stop()
-            recorder.release()
+            recorder?.stop()
+            recorder?.release()
 
-            val features = VoicePrint.extractFeatures(audioData)
-            TemplateStore.save(this, currentSample, features)
-
-            runOnUiThread {
-                Toast.makeText(this, "Sample $currentSample saved!", Toast.LENGTH_SHORT).show()
-                updateStatus()
-                currentSample++
-                if (currentSample > 5) {
-                    statusText.text = "Sab 5 samples ho gaye! Ab wapas jaake activate karo."
-                    recordButton.isEnabled = false
-                    recordButton.text = "Training Complete"
-                } else {
-                    recordButton.isEnabled = true
-                    recordButton.text = "Record Sample $currentSample"
+            if (collected.size > 1600) {
+                val audioArray = collected.toShortArray()
+                val features = VoicePrint.extractFeatures(audioArray)
+                TemplateStore.save(this, features)
+                runOnUiThread {
+                    updateStatus()
+                    Toast.makeText(this, "Sample saved!", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                runOnUiThread {
+                    Toast.makeText(this, "Bahut chhota tha, dobara try karein", Toast.LENGTH_SHORT).show()
                 }
             }
         }
+    }
+
+    private fun stopRecordingAndSave() {
+        isRecording = false
     }
 }

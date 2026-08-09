@@ -5,35 +5,35 @@ import java.io.File
 import java.io.RandomAccessFile
 
 object TemplateStore {
-    fun save(context: Context, index: Int, features: FloatArray) {
-        val file = File(context.filesDir, "template_$index.dat")
+    fun save(context: Context, features: FloatArray) {
+        val timestamp = System.currentTimeMillis()
+        val file = File(context.filesDir, "template_$timestamp.dat")
         RandomAccessFile(file, "rw").use { raf ->
-            raf.setLength(0)
             for (v in features) raf.writeFloat(v)
         }
     }
 
     fun loadAll(context: Context): List<FloatArray> {
         val templates = mutableListOf<FloatArray>()
-        for (i in 1..5) {
-            val file = File(context.filesDir, "template_$i.dat")
-            if (file.exists()) {
-                RandomAccessFile(file, "r").use { raf ->
-                    val count = (file.length() / 4).toInt()
-                    val arr = FloatArray(count)
-                    for (j in 0 until count) arr[j] = raf.readFloat()
-                    templates.add(arr)
-                }
+        val files = context.filesDir.listFiles { f -> f.name.startsWith("template_") && f.name.endsWith(".dat") }
+        files?.forEach { file ->
+            RandomAccessFile(file, "r").use { raf ->
+                val count = (file.length() / 4).toInt()
+                val arr = FloatArray(count)
+                for (j in 0 until count) arr[j] = raf.readFloat()
+                templates.add(arr)
             }
         }
         return templates
     }
 
     fun countSaved(context: Context): Int {
-        var count = 0
-        for (i in 1..5) {
-            if (File(context.filesDir, "template_$i.dat").exists()) count++
-        }
-        return count
+        val files = context.filesDir.listFiles { f -> f.name.startsWith("template_") && f.name.endsWith(".dat") }
+        return files?.size ?: 0
+    }
+
+    fun clearAll(context: Context) {
+        val files = context.filesDir.listFiles { f -> f.name.startsWith("template_") && f.name.endsWith(".dat") }
+        files?.forEach { it.delete() }
     }
 }

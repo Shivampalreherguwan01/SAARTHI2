@@ -25,6 +25,10 @@ import kotlin.concurrent.thread
 
 class WakeWordService : Service() {
 
+    companion object {
+        @Volatile var isRunning = false
+    }
+
     private val CHANNEL_ID = "saarthi_channel"
     private var overlayView: TextView? = null
     private var windowManager: WindowManager? = null
@@ -37,6 +41,7 @@ class WakeWordService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        isRunning = true
         startForegroundServiceWithNotification()
         setupOverlay()
         val templates = TemplateStore.loadAll(this)
@@ -182,6 +187,7 @@ class WakeWordService : Service() {
     }
 
     override fun onDestroy() {
+        isRunning = false
         running = false
         handler.removeCallbacksAndMessages(null)
         if (overlayAdded) {
