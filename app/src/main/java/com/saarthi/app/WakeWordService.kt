@@ -6,6 +6,9 @@ import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -18,46 +21,93 @@ import android.view.WindowManager
 import android.view.animation.AlphaAnimation
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
-import org.vosk.Model
-import org.vosk.Recognizer
-import org.vosk.android.RecognitionListener
-import org.vosk.android.SpeechService
-import org.json.JSONObject
-import java.io.File
-import java.io.FileOutputStream
 import kotlin.concurrent.thread
 
-class WakeWordService : Service(), RecognitionListener {
+class WakeWordService : Service() {
 
-    private var model: Model? = null
-    private var speechService: SpeechService? = null
     private val CHANNEL_ID = "saarthi_channel"
-
     private var overlayView: TextView? = null
     private var windowManager: WindowManager? = null
     private var overlayAdded = false
     private val handler = Handler(Looper.getMainLooper())
     private var lastTriggerTime = 0L
+    private var running = true
 
-    private val targetWords = listOf("saarthi", "sarthi", "sarathi")
+    private val THRESHOLD = 0.45f
 
     override fun onCreate() {
         super.onCreate()
         startForegroundServiceWithNotification()
         setupOverlay()
-        thread {
-            try {
-                val modelDir = File(filesDir, "model")
-                if (!modelDir.exists()) {
-                    updateNotification("Model copy ho raha hai...")
-                    copyAssetFolder("model", modelDir.absolutePath)
-                }
-                model = Model(modelDir.absolutePath)
-                startListening()
-            } catch (e: Exception) {
-                updateNotification("Model load error: ${e.message}")
-            }
+        val templates = TemplateStore.loadAll(this)
+        if (templates.isEmpty()) {
+            updateNotification("Pehle 'Saarthi Train Karo' karein")
+            return
         }
+        thread { listenLoop(templates) }
+    }
+
+    private fun listenLoop(templates: List<FloatArray>) {
+        val sampleRate = VoicePrint.SAMPLE_RATE
+        val windowSamples = sampleRate * 2
+        val bufferSize = AudioRecord.getMinBufferSize(
+            sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
+        )
+        val recorder = AudioRecord(
+            MediaRecorder.AudioSource.MIC, sampleRate,
+            AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufferSize * 2
+        )
+
+        val ringBuffer = ShortArray(windowSamples)
+        var writePos = 0
+        var filled = 0
+
+        val readChunk = ShortArray(1600)
+
+        recorder.startRecording()
+        updateNotification("Sun raha hoon... (0.00)")
+
+        while (running) {
+            val n = recorder.read(readChunk, 0, readChunk.size)
+            if (n > 0) {
+                for (i in 0 until n) {
+                    ringBuffer[writePos] = readChunk[i]
+                    writePos = (writePos + 1) % windowSamples
+                    if (filled < windowSamples) filled++
+                }
+
+                if (filled >= windowSamples) {
+                    val ordered = ShortArray(windowSamples)
+                    for (i in 0 until windowSamples) {
+                        ordered[i] = ringBuffer[(writePos + i) % windowSamples]
+                    }
+                    val features = VoicePrint.extractFeatures(ordered)
+                    var minDist = Float.MAX_VALUE
+                    for (t in templates) {
+                        val d = VoicePrint.distance(features, t)
+                        if (d < minDist) minDist = d
+                    }
+
+                    val distStr = String.format("%.2f", minDist)
+                    updateNotification("Sun raha hoon... ($distStr)")
+
+                    if (minDist < THRESHOLD) {
+                        val now = System.currentTimeMillis()
+                        if (now - lastTriggerTime > 2500) {
+                            lastTriggerTime = now
+                            updateNotification("Ji, bataiye! ($distStr)")
+                            showActivatedAnimation()
+                            val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+                            vibrator.vibrate(VibrationEffect.createOneShot(300, VibrationEffect.DEFAULT_AMPLITUDE))
+                        }
+                    }
+                }
+            }
+            Thread.sleep(300)
+        }
+
+        recorder.stop()
+        recorder.release()
     }
 
     private fun setupOverlay() {
@@ -107,25 +157,6 @@ class WakeWordService : Service(), RecognitionListener {
         }
     }
 
-    private fun copyAssetFolder(srcPath: String, dstPath: String) {
-        val files = assets.list(srcPath) ?: return
-        File(dstPath).mkdirs()
-        for (fileName in files) {
-            val srcFilePath = "$srcPath/$fileName"
-            val dstFilePath = "$dstPath/$fileName"
-            val subFiles = assets.list(srcFilePath)
-            if (subFiles != null && subFiles.isNotEmpty()) {
-                copyAssetFolder(srcFilePath, dstFilePath)
-            } else {
-                assets.open(srcFilePath).use { input ->
-                    FileOutputStream(dstFilePath).use { output ->
-                        input.copyTo(output)
-                    }
-                }
-            }
-        }
-    }
-
     private fun startForegroundServiceWithNotification() {
         val channel = NotificationChannel(
             CHANNEL_ID, "Saarthi Listening", NotificationManager.IMPORTANCE_HIGH
@@ -140,95 +171,6 @@ class WakeWordService : Service(), RecognitionListener {
         startForeground(1, notification)
     }
 
-    private fun startListening() {
-        try {
-            val rec = Recognizer(model, 16000.0f)
-            speechService = SpeechService(rec, 16000.0f)
-            speechService?.startListening(this)
-            updateNotification("Sun raha hoon...")
-        } catch (e: Exception) {
-            updateNotification("Listen error: ${e.message}")
-        }
-    }
-
-    override fun onResult(hypothesis: String?) {
-        handleHeard(hypothesis)
-    }
-
-    override fun onPartialResult(hypothesis: String?) {
-        handleHeard(hypothesis)
-    }
-
-    override fun onFinalResult(hypothesis: String?) {
-        handleHeard(hypothesis)
-    }
-
-    private fun editDistance(a: String, b: String): Int {
-        val dp = Array(a.length + 1) { IntArray(b.length + 1) }
-        for (i in 0..a.length) dp[i][0] = i
-        for (j in 0..b.length) dp[0][j] = j
-        for (i in 1..a.length) {
-            for (j in 1..b.length) {
-                dp[i][j] = if (a[i - 1] == b[j - 1]) {
-                    dp[i - 1][j - 1]
-                } else {
-                    1 + minOf(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1])
-                }
-            }
-        }
-        return dp[a.length][b.length]
-    }
-
-    private fun isCloseToWakeWord(word: String): Boolean {
-        if (word.length < 2) return false
-        for (target in targetWords) {
-            val distance = editDistance(word, target)
-            val threshold = if (target.length <= 5) 2 else 3
-            if (distance <= threshold) return true
-        }
-        return false
-    }
-
-    private fun handleHeard(hypothesis: String?) {
-        if (hypothesis == null) return
-        try {
-            val json = JSONObject(hypothesis)
-            val text = (json.optString("text", "") + " " + json.optString("partial", "")).lowercase().trim()
-            if (text.isBlank()) return
-
-            updateNotification("Suna: $text")
-
-            val words = text.split(" ", "\n").filter { it.isNotBlank() }
-            var matched = false
-            for (word in words) {
-                if (isCloseToWakeWord(word)) {
-                    matched = true
-                    break
-                }
-            }
-
-            if (matched) {
-                val now = System.currentTimeMillis()
-                if (now - lastTriggerTime > 2000) {
-                    lastTriggerTime = now
-                    updateNotification("Ji, bataiye!")
-                    showActivatedAnimation()
-                    val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-                    vibrator.vibrate(VibrationEffect.createOneShot(300, VibrationEffect.DEFAULT_AMPLITUDE))
-                }
-            }
-        } catch (e: Exception) {
-        }
-    }
-
-    override fun onError(exception: Exception?) {
-        updateNotification("Error: ${exception?.message}")
-    }
-
-    override fun onTimeout() {
-        speechService?.startListening(this)
-    }
-
     private fun updateNotification(text: String) {
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Saarthi")
@@ -240,8 +182,7 @@ class WakeWordService : Service(), RecognitionListener {
     }
 
     override fun onDestroy() {
-        speechService?.stop()
-        speechService?.shutdown()
+        running = false
         handler.removeCallbacksAndMessages(null)
         if (overlayAdded) {
             overlayView?.let { windowManager?.removeView(it) }

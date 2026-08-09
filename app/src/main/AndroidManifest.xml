@@ -25,6 +25,8 @@
             </intent-filter>
         </activity>
 
+        <activity android:name=".TrainActivity" android:exported="false" />
+
         <service
             android:name=".WakeWordService"
             android:foregroundServiceType="microphone"

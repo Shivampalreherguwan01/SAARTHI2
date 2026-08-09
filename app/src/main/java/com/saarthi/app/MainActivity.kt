@@ -50,8 +50,15 @@ class MainActivity : AppCompatActivity() {
             requestPermissionsAndStart()
         }
 
+        val trainButton = Button(this)
+        trainButton.text = "Saarthi Train Karo"
+        trainButton.setOnClickListener {
+            startActivity(Intent(this, TrainActivity::class.java))
+        }
+
         layout.addView(textView)
         layout.addView(button)
+        layout.addView(trainButton)
         setContentView(layout)
     }
 
