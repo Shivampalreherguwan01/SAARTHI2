@@ -16,6 +16,10 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: Create local.properties with API key
+        run: |
+          echo "GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}" >> local.properties
+
       - name: Build APK
         run: |
           gradle wrapper --gradle-version 8.4

@@ -15,15 +15,18 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
+import android.speech.tts.TextToSpeech
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.view.animation.AlphaAnimation
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
+import java.io.File
+import java.util.Locale
 import kotlin.concurrent.thread
 
-class WakeWordService : Service() {
+class WakeWordService : Service(), TextToSpeech.OnInitListener {
 
     companion object {
         @Volatile var isRunning = false
@@ -36,13 +39,16 @@ class WakeWordService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private var lastTriggerTime = 0L
     private var running = true
+    private var consecutiveMatches = 0
+    private var tts: TextToSpeech? = null
+    private var inCommandMode = false
 
     private val THRESHOLD = 0.20f
-    private var consecutiveMatches = 0
 
     override fun onCreate() {
         super.onCreate()
         isRunning = true
+        tts = TextToSpeech(this, this)
         startForegroundServiceWithNotification()
         setupOverlay()
         val templates = TemplateStore.loadAll(this)
@@ -51,6 +57,12 @@ class WakeWordService : Service() {
             return
         }
         thread { listenLoop(templates) }
+    }
+
+    override fun onInit(status: Int) {
+        if (status == TextToSpeech.SUCCESS) {
+            tts?.language = Locale("hi", "IN")
+        }
     }
 
     private fun listenLoop(templates: List<FloatArray>) {
@@ -67,13 +79,17 @@ class WakeWordService : Service() {
         val ringBuffer = ShortArray(windowSamples)
         var writePos = 0
         var filled = 0
-
         val readChunk = ShortArray(1600)
 
         recorder.startRecording()
-        updateNotification("Sun raha hoon... (0.00)")
+        updateNotification("Sun raha hoon...")
 
         while (running) {
+            if (inCommandMode) {
+                Thread.sleep(200)
+                continue
+            }
+
             val n = recorder.read(readChunk, 0, readChunk.size)
             if (n > 0) {
                 for (i in 0 until n) {
@@ -91,6 +107,7 @@ class WakeWordService : Service() {
                     val rms = VoicePrint.computeRMS(ordered)
                     if (rms < 400.0) {
                         updateNotification("Sun raha hoon... (chup hai)")
+                        consecutiveMatches = 0
                         Thread.sleep(300)
                         continue
                     }
@@ -116,10 +133,7 @@ class WakeWordService : Service() {
                         val now = System.currentTimeMillis()
                         if (now - lastTriggerTime > 2500) {
                             lastTriggerTime = now
-                            updateNotification("Ji, bataiye! ($distStr)")
-                            showActivatedAnimation()
-                            val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-                            vibrator.vibrate(VibrationEffect.createOneShot(300, VibrationEffect.DEFAULT_AMPLITUDE))
+                            triggerWakeWord(recorder)
                         }
                     }
                 }
@@ -129,6 +143,49 @@ class WakeWordService : Service() {
 
         recorder.stop()
         recorder.release()
+    }
+
+    private fun triggerWakeWord(sharedRecorder: AudioRecord) {
+        updateNotification("Ji, bataiye!")
+        showActivatedAnimation()
+        val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        vibrator.vibrate(VibrationEffect.createOneShot(300, VibrationEffect.DEFAULT_AMPLITUDE))
+
+        inCommandMode = true
+        thread {
+            try {
+                val sampleRate = VoicePrint.SAMPLE_RATE
+                val totalSamples = sampleRate * 4
+                val commandAudio = ShortArray(totalSamples)
+                var read = 0
+                val chunk = ShortArray(1600)
+                while (read < totalSamples) {
+                    val n = sharedRecorder.read(chunk, 0, chunk.size)
+                    if (n > 0) {
+                        val copyLen = minOf(n, totalSamples - read)
+                        System.arraycopy(chunk, 0, commandAudio, read, copyLen)
+                        read += copyLen
+                    }
+                }
+
+                updateNotification("Samajh raha hoon...")
+
+                val wavFile = File(cacheDir, "command.wav")
+                WavWriter.writeWav(wavFile, commandAudio, sampleRate)
+
+                val text = GroqApi.transcribe(wavFile)
+
+                if (text.isNullOrBlank()) {
+                    updateNotification("Kuch samajh nahi aaya")
+                } else {
+                    updateNotification("Aapne kaha: $text")
+                    tts?.speak("Aapne kaha: $text", TextToSpeech.QUEUE_FLUSH, null, null)
+                }
+            } catch (e: Exception) {
+                updateNotification("Command error: ${e.message}")
+            }
+            inCommandMode = false
+        }
     }
 
     private fun setupOverlay() {
@@ -205,6 +262,8 @@ class WakeWordService : Service() {
     override fun onDestroy() {
         isRunning = false
         running = false
+        tts?.stop()
+        tts?.shutdown()
         handler.removeCallbacksAndMessages(null)
         if (overlayAdded) {
             overlayView?.let { windowManager?.removeView(it) }
