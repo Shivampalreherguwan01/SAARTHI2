@@ -72,9 +72,16 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        val trainButton = android.widget.Button(this)
+        trainButton.text = "Awaaz Train Karo"
+        trainButton.setOnClickListener {
+            startActivity(Intent(this, TrainActivity::class.java))
+        }
+
         layout.addView(title)
         layout.addView(statusText)
         layout.addView(toggleSwitch)
+        layout.addView(trainButton)
         setContentView(layout)
 
         refreshStatus()
