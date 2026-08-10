@@ -127,7 +127,7 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
                     }
 
                     val rms = VoicePrint.computeRMS(ordered)
-                    if (rms < 500.0) {
+                    if (rms < 900.0) {
                         Thread.sleep(250)
                         continue
                     }
@@ -138,7 +138,6 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
                         continue
                     }
 
-                    updateNotification("Kuch suna, check kar raha hoon...")
                     val wavFile = File(cacheDir, "wakecheck.wav")
                     WavWriter.writeWav(wavFile, ordered, sampleRate)
                     val text = GroqApi.transcribe(wavFile)
@@ -146,8 +145,6 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
                     if (text != null && textContainsWakeWord(text)) {
                         lastTriggerTime = now
                         triggerWakeWord(recorder)
-                    } else {
-                        updateNotification("Sun raha hoon...")
                     }
                 }
             }
