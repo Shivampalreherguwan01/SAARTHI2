@@ -150,23 +150,8 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
             val text = GroqApi.transcribe(wavFile)
 
             if (text != null && textContainsWakeWord(text)) {
-                val templates = TemplateStore.loadAll(this)
-                if (templates.isEmpty()) {
-                    updateNotification("Pehle 'Saarthi Train Karo' karein")
-                } else {
-                    val features = VoicePrint.extractFeatures(utterance)
-                    var minDist = Float.MAX_VALUE
-                    for (t in templates) {
-                        val d = VoicePrint.distance(features, t)
-                        if (d < minDist) minDist = d
-                    }
-                    if (minDist < 0.35f) {
-                        lastTriggerTime = System.currentTimeMillis()
-                        triggerWakeWord(recorder)
-                    } else {
-                        updateNotification("Sun raha hoon...")
-                    }
-                }
+                lastTriggerTime = System.currentTimeMillis()
+                triggerWakeWord(recorder)
             }
         }
 
