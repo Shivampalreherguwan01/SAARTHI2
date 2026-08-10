@@ -206,8 +206,14 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
                 if (text.isNullOrBlank()) {
                     updateNotification("Kuch samajh nahi aaya")
                 } else {
-                    updateNotification("Aapne kaha: $text")
-                    tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+                    val actionResult = CommandExecutor.tryExecute(this, text)
+                    if (actionResult != null) {
+                        updateNotification(actionResult)
+                        tts?.speak(actionResult, TextToSpeech.QUEUE_FLUSH, null, null)
+                    } else {
+                        updateNotification("Aapne kaha: $text")
+                        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+                    }
                 }
             } catch (e: Exception) {
                 updateNotification("Command error: ${e.message}")
