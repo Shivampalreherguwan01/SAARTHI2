@@ -89,7 +89,6 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
 
     private fun listenLoop() {
         val sampleRate = VoicePrint.SAMPLE_RATE
-        val windowSamples = (sampleRate * 1.8).toInt()
         val bufferSize = AudioRecord.getMinBufferSize(
             sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
         )
@@ -98,10 +97,11 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
             AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufferSize * 2
         )
 
-        val ringBuffer = ShortArray(windowSamples)
-        var writePos = 0
-        var filled = 0
-        val readChunk = ShortArray(1600)
+        val chunkSize = 800
+        val chunk = ShortArray(chunkSize)
+        val speechThreshold = 700.0
+        val silenceChunksToEnd = 12
+        val maxUtteranceSamples = sampleRate * 3
 
         recorder.startRecording()
         updateNotification("Sun raha hoon...")
@@ -112,43 +112,47 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
                 continue
             }
 
-            val n = recorder.read(readChunk, 0, readChunk.size)
-            if (n > 0) {
-                for (i in 0 until n) {
-                    ringBuffer[writePos] = readChunk[i]
-                    writePos = (writePos + 1) % windowSamples
-                    if (filled < windowSamples) filled++
-                }
+            val n = recorder.read(chunk, 0, chunkSize)
+            if (n <= 0) continue
 
-                if (filled >= windowSamples) {
-                    val ordered = ShortArray(windowSamples)
-                    for (i in 0 until windowSamples) {
-                        ordered[i] = ringBuffer[(writePos + i) % windowSamples]
-                    }
+            val chunkRms = VoicePrint.computeRMS(chunk.copyOf(n))
+            if (chunkRms < speechThreshold) {
+                continue
+            }
 
-                    val rms = VoicePrint.computeRMS(ordered)
-                    if (rms < 900.0) {
-                        Thread.sleep(250)
-                        continue
-                    }
+            val now = System.currentTimeMillis()
+            if (now - lastTriggerTime < 1500) {
+                continue
+            }
 
-                    val now = System.currentTimeMillis()
-                    if (now - lastTriggerTime < 2000) {
-                        Thread.sleep(250)
-                        continue
-                    }
+            val collected = mutableListOf<Short>()
+            for (i in 0 until n) collected.add(chunk[i])
+            var silenceCount = 0
 
-                    val wavFile = File(cacheDir, "wakecheck.wav")
-                    WavWriter.writeWav(wavFile, ordered, sampleRate)
-                    val text = GroqApi.transcribe(wavFile)
-
-                    if (text != null && textContainsWakeWord(text)) {
-                        lastTriggerTime = now
-                        triggerWakeWord(recorder)
-                    }
+            while (collected.size < maxUtteranceSamples) {
+                val n2 = recorder.read(chunk, 0, chunkSize)
+                if (n2 <= 0) continue
+                for (i in 0 until n2) collected.add(chunk[i])
+                val rms2 = VoicePrint.computeRMS(chunk.copyOf(n2))
+                if (rms2 < speechThreshold) {
+                    silenceCount++
+                    if (silenceCount >= silenceChunksToEnd) break
+                } else {
+                    silenceCount = 0
                 }
             }
-            Thread.sleep(200)
+
+            if (collected.size < sampleRate / 3) continue
+
+            val utterance = collected.toShortArray()
+            val wavFile = File(cacheDir, "wakecheck.wav")
+            WavWriter.writeWav(wavFile, utterance, sampleRate)
+            val text = GroqApi.transcribe(wavFile)
+
+            if (text != null && textContainsWakeWord(text)) {
+                lastTriggerTime = System.currentTimeMillis()
+                triggerWakeWord(recorder)
+            }
         }
 
         recorder.stop()
