@@ -23,7 +23,7 @@ object GroqApi {
                     "file", audioFile.name,
                     audioFile.asRequestBody("audio/wav".toMediaType())
                 )
-                .addFormDataPart("model", "whisper-large-v3")
+                .addFormDataPart("model", "whisper-large-v3-turbo")
                 .build()
 
             val request = Request.Builder()

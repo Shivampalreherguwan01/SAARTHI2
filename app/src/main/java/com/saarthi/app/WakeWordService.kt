@@ -39,11 +39,13 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
     private val handler = Handler(Looper.getMainLooper())
     private var lastTriggerTime = 0L
     private var running = true
-    private var consecutiveMatches = 0
     private var tts: TextToSpeech? = null
     private var inCommandMode = false
 
-    private val THRESHOLD = 0.20f
+    private val wakeWords = listOf(
+        "saarthi", "sarthi", "saathi", "sathi",
+        "सारथि", "सारथी", "सार्थी", "शारथी", "शारृथी", "साथी"
+    )
 
     override fun onCreate() {
         super.onCreate()
@@ -51,12 +53,7 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
         tts = TextToSpeech(this, this)
         startForegroundServiceWithNotification()
         setupOverlay()
-        val templates = TemplateStore.loadAll(this)
-        if (templates.isEmpty()) {
-            updateNotification("Pehle 'Saarthi Train Karo' karein")
-            return
-        }
-        thread { listenLoop(templates) }
+        thread { listenLoop() }
     }
 
     override fun onInit(status: Int) {
@@ -65,9 +62,34 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun listenLoop(templates: List<FloatArray>) {
+    private fun editDistance(a: String, b: String): Int {
+        val dp = Array(a.length + 1) { IntArray(b.length + 1) }
+        for (i in 0..a.length) dp[i][0] = i
+        for (j in 0..b.length) dp[0][j] = j
+        for (i in 1..a.length) {
+            for (j in 1..b.length) {
+                dp[i][j] = if (a[i - 1] == b[j - 1]) dp[i - 1][j - 1]
+                else 1 + minOf(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1])
+            }
+        }
+        return dp[a.length][b.length]
+    }
+
+    private fun textContainsWakeWord(text: String): Boolean {
+        val lower = text.lowercase().trim()
+        val words = lower.split(" ", "\n", ",", ".", "!", "?").filter { it.isNotBlank() }
+        for (word in words) {
+            for (target in wakeWords) {
+                val threshold = if (target.length <= 5) 1 else 2
+                if (editDistance(word, target) <= threshold) return true
+            }
+        }
+        return false
+    }
+
+    private fun listenLoop() {
         val sampleRate = VoicePrint.SAMPLE_RATE
-        val windowSamples = sampleRate * 2
+        val windowSamples = (sampleRate * 1.8).toInt()
         val bufferSize = AudioRecord.getMinBufferSize(
             sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
         )
@@ -105,40 +127,31 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
                     }
 
                     val rms = VoicePrint.computeRMS(ordered)
-                    if (rms < 400.0) {
-                        updateNotification("Sun raha hoon... (chup hai)")
-                        consecutiveMatches = 0
-                        Thread.sleep(300)
+                    if (rms < 500.0) {
+                        Thread.sleep(250)
                         continue
                     }
 
-                    val features = VoicePrint.extractFeatures(ordered)
-                    var minDist = Float.MAX_VALUE
-                    for (t in templates) {
-                        val d = VoicePrint.distance(features, t)
-                        if (d < minDist) minDist = d
+                    val now = System.currentTimeMillis()
+                    if (now - lastTriggerTime < 2000) {
+                        Thread.sleep(250)
+                        continue
                     }
 
-                    val distStr = String.format("%.2f", minDist)
-                    updateNotification("Sun raha hoon... ($distStr)")
+                    updateNotification("Kuch suna, check kar raha hoon...")
+                    val wavFile = File(cacheDir, "wakecheck.wav")
+                    WavWriter.writeWav(wavFile, ordered, sampleRate)
+                    val text = GroqApi.transcribe(wavFile)
 
-                    if (minDist < THRESHOLD) {
-                        consecutiveMatches++
+                    if (text != null && textContainsWakeWord(text)) {
+                        lastTriggerTime = now
+                        triggerWakeWord(recorder)
                     } else {
-                        consecutiveMatches = 0
-                    }
-
-                    if (consecutiveMatches >= 2) {
-                        consecutiveMatches = 0
-                        val now = System.currentTimeMillis()
-                        if (now - lastTriggerTime > 2500) {
-                            lastTriggerTime = now
-                            triggerWakeWord(recorder)
-                        }
+                        updateNotification("Sun raha hoon...")
                     }
                 }
             }
-            Thread.sleep(300)
+            Thread.sleep(200)
         }
 
         recorder.stop()
@@ -155,7 +168,7 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
         thread {
             try {
                 val sampleRate = VoicePrint.SAMPLE_RATE
-                val totalSamples = sampleRate * 4
+                val totalSamples = sampleRate * 5
                 val commandAudio = ShortArray(totalSamples)
                 var read = 0
                 val chunk = ShortArray(1600)
@@ -179,11 +192,12 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
                     updateNotification("Kuch samajh nahi aaya")
                 } else {
                     updateNotification("Aapne kaha: $text")
-                    tts?.speak("Aapne kaha: $text", TextToSpeech.QUEUE_FLUSH, null, null)
+                    tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
                 }
             } catch (e: Exception) {
                 updateNotification("Command error: ${e.message}")
             }
+            lastTriggerTime = System.currentTimeMillis()
             inCommandMode = false
         }
     }
@@ -231,7 +245,7 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
             pulse.repeatMode = AlphaAnimation.REVERSE
             pulse.repeatCount = 3
             overlayView?.startAnimation(pulse)
-            handler.postDelayed({ overlayView?.visibility = View.GONE }, 3000)
+            handler.postDelayed({ overlayView?.visibility = View.GONE }, 5000)
         }
     }
 

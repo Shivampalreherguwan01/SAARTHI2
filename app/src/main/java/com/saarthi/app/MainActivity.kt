@@ -8,8 +8,8 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -18,7 +18,8 @@ import androidx.core.content.ContextCompat
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var toggleButton: Button
+    private lateinit var toggleSwitch: Switch
+    private lateinit var statusText: TextView
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -28,6 +29,7 @@ class MainActivity : AppCompatActivity() {
             checkOverlayAndStart()
         } else {
             Toast.makeText(this, "Microphone permission zaroori hai", Toast.LENGTH_LONG).show()
+            toggleSwitch.isChecked = false
         }
     }
 
@@ -37,52 +39,57 @@ class MainActivity : AppCompatActivity() {
         startService()
     }
 
+    private var suppressListener = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         val layout = LinearLayout(this)
         layout.orientation = LinearLayout.VERTICAL
         layout.setPadding(60, 200, 60, 60)
+        layout.gravity = android.view.Gravity.CENTER_HORIZONTAL
 
-        val textView = TextView(this)
-        textView.text = "Saarthi Ready"
-        textView.textSize = 28f
+        val title = TextView(this)
+        title.text = "Saarthi"
+        title.textSize = 30f
+        title.setPadding(0, 0, 0, 40)
 
-        toggleButton = Button(this)
-        toggleButton.setOnClickListener {
-            if (WakeWordService.isRunning) {
-                stopService(Intent(this, WakeWordService::class.java))
-                refreshButtonState()
-            } else {
+        statusText = TextView(this)
+        statusText.textSize = 16f
+        statusText.setPadding(0, 0, 0, 20)
+
+        toggleSwitch = Switch(this)
+        toggleSwitch.textOn = "ON"
+        toggleSwitch.textOff = "OFF"
+        toggleSwitch.showText = true
+        toggleSwitch.setOnCheckedChangeListener { _, isChecked ->
+            if (suppressListener) return@setOnCheckedChangeListener
+            if (isChecked) {
                 requestPermissionsAndStart()
+            } else {
+                stopService(Intent(this, WakeWordService::class.java))
+                refreshStatus()
             }
         }
 
-        val trainButton = Button(this)
-        trainButton.text = "Saarthi Train Karo"
-        trainButton.setOnClickListener {
-            startActivity(Intent(this, TrainActivity::class.java))
-        }
-
-        layout.addView(textView)
-        layout.addView(toggleButton)
-        layout.addView(trainButton)
+        layout.addView(title)
+        layout.addView(statusText)
+        layout.addView(toggleSwitch)
         setContentView(layout)
 
-        refreshButtonState()
+        refreshStatus()
     }
 
     override fun onResume() {
         super.onResume()
-        refreshButtonState()
+        refreshStatus()
     }
 
-    private fun refreshButtonState() {
-        if (WakeWordService.isRunning) {
-            toggleButton.text = "Saarthi: ON (band karne ke liye dabaओ)"
-        } else {
-            toggleButton.text = "Saarthi: OFF (chalू karne ke liye dabaओ)"
-        }
+    private fun refreshStatus() {
+        suppressListener = true
+        toggleSwitch.isChecked = WakeWordService.isRunning
+        suppressListener = false
+        statusText.text = if (WakeWordService.isRunning) "Saarthi active hai" else "Saarthi band hai"
     }
 
     private fun requestPermissionsAndStart() {
@@ -108,6 +115,6 @@ class MainActivity : AppCompatActivity() {
     private fun startService() {
         val serviceIntent = Intent(this, WakeWordService::class.java)
         ContextCompat.startForegroundService(this, serviceIntent)
-        Handler(Looper.getMainLooper()).postDelayed({ refreshButtonState() }, 500)
+        Handler(Looper.getMainLooper()).postDelayed({ refreshStatus() }, 500)
     }
 }
