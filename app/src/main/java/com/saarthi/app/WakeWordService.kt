@@ -9,6 +9,8 @@ import android.graphics.drawable.GradientDrawable
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.media.audiofx.AcousticEchoCanceler
+import android.media.audiofx.NoiseSuppressor
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -102,6 +104,18 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
         val speechThreshold = 700.0
         val silenceChunksToEnd = 12
         val maxUtteranceSamples = sampleRate * 3
+
+        try {
+            if (AcousticEchoCanceler.isAvailable()) {
+                val aec = AcousticEchoCanceler.create(recorder.audioSessionId)
+                aec?.enabled = true
+            }
+            if (NoiseSuppressor.isAvailable()) {
+                val ns = NoiseSuppressor.create(recorder.audioSessionId)
+                ns?.enabled = true
+            }
+        } catch (e: Exception) {
+        }
 
         recorder.startRecording()
         updateNotification("Sun raha hoon...")
