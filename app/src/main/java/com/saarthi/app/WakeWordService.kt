@@ -175,6 +175,7 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
                         }
                     }
                 } catch (e: Exception) {
+                    updateNotification("Check error: ${e.message}")
                 }
             }
         }
@@ -223,6 +224,7 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
                 }
             } catch (e: Exception) {
                 updateNotification("Command error: ${e.message}")
+                Thread.sleep(2000)
             }
             hideActivatedAnimation()
             updateNotification("Sun raha hoon...")
