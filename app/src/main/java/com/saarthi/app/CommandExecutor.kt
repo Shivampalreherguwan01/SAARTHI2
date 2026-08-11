@@ -32,6 +32,13 @@ object CommandExecutor {
         return false
     }
 
+    fun goHome(context: Context) {
+        val intent = Intent(Intent.ACTION_MAIN)
+        intent.addCategory(Intent.CATEGORY_HOME)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+    }
+
     private fun findInstalledApp(context: Context, searchTerm: String): String? {
         val pm = context.packageManager
         val apps = pm.getInstalledApplications(PackageManager.GET_META_DATA)

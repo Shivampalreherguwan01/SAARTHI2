@@ -43,6 +43,7 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
     private var running = true
     private var tts: TextToSpeech? = null
     private var inCommandMode = false
+    private var currentRecorder: AudioRecord? = null
 
     private val wakeWords = listOf(
         "saarthi", "sarthi", "saathi", "sathi",
@@ -159,13 +160,22 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
             if (collected.size < sampleRate / 3) continue
 
             val utterance = collected.toShortArray()
-            val wavFile = File(cacheDir, "wakecheck.wav")
-            WavWriter.writeWav(wavFile, utterance, sampleRate)
-            val text = GroqApi.transcribe(wavFile)
+            thread {
+                try {
+                    val wavFile = File(cacheDir, "wakecheck_${System.currentTimeMillis()}.wav")
+                    WavWriter.writeWav(wavFile, utterance, sampleRate)
+                    val text = GroqApi.transcribe(wavFile)
+                    wavFile.delete()
 
-            if (text != null && textContainsWakeWord(text)) {
-                lastTriggerTime = System.currentTimeMillis()
-                triggerWakeWord(recorder)
+                    if (text != null && textContainsWakeWord(text) && !inCommandMode) {
+                        val now2 = System.currentTimeMillis()
+                        if (now2 - lastTriggerTime > 1500) {
+                            lastTriggerTime = now2
+                            triggerWakeWord(recorder)
+                        }
+                    }
+                } catch (e: Exception) {
+                }
             }
         }
 
@@ -174,6 +184,7 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun triggerWakeWord(sharedRecorder: AudioRecord) {
+        currentRecorder = sharedRecorder
         updateNotification("Ji, bataiye!")
         showActivatedAnimation()
         val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
@@ -208,17 +219,7 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
                         break
                     }
 
-                    val interpretation = GroqLLM.interpret(text)
-                    if (interpretation == null) {
-                        updateNotification("Aapne kaha: $text")
-                        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
-                    } else {
-                        updateNotification(interpretation.reply)
-                        tts?.speak(interpretation.reply, TextToSpeech.QUEUE_FLUSH, null, null)
-                        if (interpretation.actionType == "open_app" && interpretation.target != null) {
-                            CommandExecutor.execute(this, interpretation.target)
-                        }
-                    }
+                    handleCommand(text)
                 }
             } catch (e: Exception) {
                 updateNotification("Command error: ${e.message}")
@@ -227,6 +228,60 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
             updateNotification("Sun raha hoon...")
             lastTriggerTime = System.currentTimeMillis()
             inCommandMode = false
+        }
+    }
+
+    private fun handleCommand(text: String) {
+        val learned = LearnedCommands.lookup(this, text)
+        val interpretation = learned ?: GroqLLM.interpret(text)
+
+        if (interpretation == null) {
+            updateNotification("Aapne kaha: $text")
+            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+            return
+        }
+
+        updateNotification(interpretation.reply)
+        tts?.speak(interpretation.reply, TextToSpeech.QUEUE_FLUSH, null, null)
+
+        when (interpretation.actionType) {
+            "open_app" -> {
+                if (interpretation.target != null) {
+                    CommandExecutor.execute(this, interpretation.target)
+                    if (learned == null) {
+                        LearnedCommands.save(this, text, interpretation.actionType, interpretation.target, interpretation.reply)
+                    }
+                }
+            }
+            "close_app" -> {
+                CommandExecutor.goHome(this)
+                if (learned == null) {
+                    LearnedCommands.save(this, text, interpretation.actionType, interpretation.target, interpretation.reply)
+                }
+            }
+            "unknown" -> {
+                Thread.sleep(800)
+                val clarification = captureFollowUpCommand(currentRecorder!!, 8000)
+                if (clarification != null) {
+                    val wavFile = File(cacheDir, "clarify.wav")
+                    WavWriter.writeWav(wavFile, clarification, VoicePrint.SAMPLE_RATE)
+                    val clarText = GroqApi.transcribe(wavFile)
+                    if (!clarText.isNullOrBlank()) {
+                        val combined = "User originally said: \"$text\". When asked to clarify, they said: \"$clarText\". Determine the action now."
+                        val retryInterpretation = GroqLLM.interpret(combined)
+                        if (retryInterpretation != null && retryInterpretation.actionType != "unknown") {
+                            updateNotification(retryInterpretation.reply)
+                            tts?.speak(retryInterpretation.reply, TextToSpeech.QUEUE_FLUSH, null, null)
+                            if (retryInterpretation.actionType == "open_app" && retryInterpretation.target != null) {
+                                CommandExecutor.execute(this, retryInterpretation.target)
+                            } else if (retryInterpretation.actionType == "close_app") {
+                                CommandExecutor.goHome(this)
+                            }
+                            LearnedCommands.save(this, text, retryInterpretation.actionType, retryInterpretation.target, retryInterpretation.reply)
+                        }
+                    }
+                }
+            }
         }
     }
 
