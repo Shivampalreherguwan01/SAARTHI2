@@ -182,30 +182,32 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
         inCommandMode = true
         thread {
             try {
-                val sampleRate = VoicePrint.SAMPLE_RATE
-                val totalSamples = sampleRate * 5
-                val commandAudio = ShortArray(totalSamples)
-                var read = 0
-                val chunk = ShortArray(1600)
-                while (read < totalSamples) {
-                    val n = sharedRecorder.read(chunk, 0, chunk.size)
-                    if (n > 0) {
-                        val copyLen = minOf(n, totalSamples - read)
-                        System.arraycopy(chunk, 0, commandAudio, read, copyLen)
-                        read += copyLen
+                var keepGoing = true
+                while (keepGoing) {
+                    val commandAudio = captureFollowUpCommand(sharedRecorder, 8000)
+                    if (commandAudio == null) {
+                        keepGoing = false
+                        break
                     }
-                }
 
-                updateNotification("Samajh raha hoon...")
+                    updateNotification("Samajh raha hoon...")
+                    val wavFile = File(cacheDir, "command.wav")
+                    WavWriter.writeWav(wavFile, commandAudio, VoicePrint.SAMPLE_RATE)
+                    val text = GroqApi.transcribe(wavFile)
 
-                val wavFile = File(cacheDir, "command.wav")
-                WavWriter.writeWav(wavFile, commandAudio, sampleRate)
+                    if (text.isNullOrBlank()) {
+                        updateNotification("Kuch samajh nahi aaya")
+                        continue
+                    }
 
-                val text = GroqApi.transcribe(wavFile)
+                    val lowerText = text.lowercase()
+                    if (lowerText.contains("band karo") || lowerText.contains("band ho jao") ||
+                        lowerText.contains("stop") || lowerText.contains("बंद करो") || lowerText.contains("रुक")) {
+                        tts?.speak("Theek hai", TextToSpeech.QUEUE_FLUSH, null, null)
+                        keepGoing = false
+                        break
+                    }
 
-                if (text.isNullOrBlank()) {
-                    updateNotification("Kuch samajh nahi aaya")
-                } else {
                     val actionResult = CommandExecutor.tryExecute(this, text)
                     if (actionResult != null) {
                         updateNotification(actionResult)
@@ -218,9 +220,50 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
             } catch (e: Exception) {
                 updateNotification("Command error: ${e.message}")
             }
+            hideActivatedAnimation()
+            updateNotification("Sun raha hoon...")
             lastTriggerTime = System.currentTimeMillis()
             inCommandMode = false
         }
+    }
+
+    private fun captureFollowUpCommand(recorder: AudioRecord, timeoutMs: Long): ShortArray? {
+        val sampleRate = VoicePrint.SAMPLE_RATE
+        val chunkSize = 800
+        val chunk = ShortArray(chunkSize)
+        val speechThreshold = 700.0
+        val silenceChunksToEnd = 12
+        val maxUtteranceSamples = sampleRate * 6
+        val startTime = System.currentTimeMillis()
+
+        while (System.currentTimeMillis() - startTime < timeoutMs) {
+            val n = recorder.read(chunk, 0, chunkSize)
+            if (n <= 0) continue
+            val rms = VoicePrint.computeRMS(chunk.copyOf(n))
+            if (rms < speechThreshold) continue
+
+            val collected = mutableListOf<Short>()
+            for (i in 0 until n) collected.add(chunk[i])
+            var silenceCount = 0
+
+            while (collected.size < maxUtteranceSamples) {
+                val n2 = recorder.read(chunk, 0, chunkSize)
+                if (n2 <= 0) continue
+                for (i in 0 until n2) collected.add(chunk[i])
+                val rms2 = VoicePrint.computeRMS(chunk.copyOf(n2))
+                if (rms2 < speechThreshold) {
+                    silenceCount++
+                    if (silenceCount >= silenceChunksToEnd) break
+                } else {
+                    silenceCount = 0
+                }
+            }
+
+            if (collected.size >= sampleRate / 3) {
+                return collected.toShortArray()
+            }
+        }
+        return null
     }
 
     private fun setupOverlay() {
@@ -266,8 +309,11 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
             pulse.repeatMode = AlphaAnimation.REVERSE
             pulse.repeatCount = 3
             overlayView?.startAnimation(pulse)
-            handler.postDelayed({ overlayView?.visibility = View.GONE }, 5000)
         }
+    }
+
+    private fun hideActivatedAnimation() {
+        handler.post { overlayView?.visibility = View.GONE }
     }
 
     private fun startForegroundServiceWithNotification() {
