@@ -208,13 +208,16 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
                         break
                     }
 
-                    val actionResult = CommandExecutor.tryExecute(this, text)
-                    if (actionResult != null) {
-                        updateNotification(actionResult)
-                        tts?.speak(actionResult, TextToSpeech.QUEUE_FLUSH, null, null)
-                    } else {
+                    val interpretation = GroqLLM.interpret(text)
+                    if (interpretation == null) {
                         updateNotification("Aapne kaha: $text")
                         tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+                    } else {
+                        updateNotification(interpretation.reply)
+                        tts?.speak(interpretation.reply, TextToSpeech.QUEUE_FLUSH, null, null)
+                        if (interpretation.actionType == "open_app" && interpretation.target != null) {
+                            CommandExecutor.execute(this, interpretation.target)
+                        }
                     }
                 }
             } catch (e: Exception) {
