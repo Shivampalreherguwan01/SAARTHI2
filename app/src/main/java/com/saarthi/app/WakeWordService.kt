@@ -160,23 +160,17 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
             if (collected.size < sampleRate / 3) continue
 
             val utterance = collected.toShortArray()
-            thread {
-                try {
-                    val wavFile = File(cacheDir, "wakecheck_${System.currentTimeMillis()}.wav")
-                    WavWriter.writeWav(wavFile, utterance, sampleRate)
-                    val text = GroqApi.transcribe(wavFile)
-                    wavFile.delete()
+            try {
+                val wavFile = File(cacheDir, "wakecheck.wav")
+                WavWriter.writeWav(wavFile, utterance, sampleRate)
+                val text = GroqApi.transcribe(wavFile)
 
-                    if (text != null && textContainsWakeWord(text) && !inCommandMode) {
-                        val now2 = System.currentTimeMillis()
-                        if (now2 - lastTriggerTime > 1500) {
-                            lastTriggerTime = now2
-                            triggerWakeWord(recorder)
-                        }
-                    }
-                } catch (e: Exception) {
-                    updateNotification("Check error: ${e.message}")
+                if (text != null && textContainsWakeWord(text)) {
+                    lastTriggerTime = System.currentTimeMillis()
+                    triggerWakeWord(recorder)
                 }
+            } catch (e: Exception) {
+                updateNotification("Check error: ${e.message}")
             }
         }
 
