@@ -7,6 +7,18 @@ import android.provider.MediaStore
 
 object CommandExecutor {
 
+    fun getInstalledAppLabels(context: Context): List<String> {
+        val pm = context.packageManager
+        val intent = Intent(Intent.ACTION_MAIN, null)
+        intent.addCategory(Intent.CATEGORY_LAUNCHER)
+        val resolveInfos = pm.queryIntentActivities(intent, PackageManager.MATCH_ALL)
+        val labels = mutableListOf<String>()
+        for (info in resolveInfos) {
+            labels.add(info.loadLabel(pm).toString())
+        }
+        return labels.distinct()
+    }
+
     fun execute(context: Context, target: String): Boolean {
         val lower = target.lowercase()
 
@@ -16,6 +28,23 @@ object CommandExecutor {
             if (intent.resolveActivity(context.packageManager) != null) {
                 context.startActivity(intent)
                 return true
+            }
+        }
+
+        val pm = context.packageManager
+        val intent = Intent(Intent.ACTION_MAIN, null)
+        intent.addCategory(Intent.CATEGORY_LAUNCHER)
+        val resolveInfos = pm.queryIntentActivities(intent, PackageManager.MATCH_ALL)
+        for (info in resolveInfos) {
+            val label = info.loadLabel(pm).toString()
+            if (label.equals(target, ignoreCase = true) || label.lowercase() == lower) {
+                val packageName = info.activityInfo.packageName
+                val launch = pm.getLaunchIntentForPackage(packageName)
+                if (launch != null) {
+                    launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(launch)
+                    return true
+                }
             }
         }
 

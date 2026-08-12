@@ -229,7 +229,8 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
 
     private fun handleCommand(text: String) {
         val learned = LearnedCommands.lookup(this, text)
-        val interpretation = learned ?: GroqLLM.interpret(text)
+        val installedApps = CommandExecutor.getInstalledAppLabels(this)
+        val interpretation = learned ?: GroqLLM.interpret(text, installedApps)
 
         if (interpretation == null) {
             updateNotification("Aapne kaha: $text")
