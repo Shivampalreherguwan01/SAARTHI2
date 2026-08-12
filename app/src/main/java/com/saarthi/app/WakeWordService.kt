@@ -373,7 +373,7 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
 
     private fun startForegroundServiceWithNotification() {
         val channel = NotificationChannel(
-            CHANNEL_ID, "Saarthi Listening", NotificationManager.IMPORTANCE_HIGH
+            CHANNEL_ID, "Saarthi Listening", NotificationManager.IMPORTANCE_LOW
         )
         val manager = getSystemService(NotificationManager::class.java)
         manager?.createNotificationChannel(channel)
