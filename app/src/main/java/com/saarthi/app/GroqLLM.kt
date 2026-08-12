@@ -41,7 +41,7 @@ Always respond with valid JSON only, no extra text.
             messages.put(JSONObject().put("role", "user").put("content", userText))
 
             val body = JSONObject()
-            body.put("model", "llama-3.3-70b-versatile")
+            body.put("model", "llama-3.1-8b-instant")
             body.put("messages", messages)
             body.put("temperature", 0.3)
 
