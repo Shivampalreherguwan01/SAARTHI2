@@ -69,10 +69,14 @@ class GeminiLiveClient(
                         "If the user wants to open an app, call the open_app function with the exact app name from the list (match tolerantly for spelling/pronunciation mistakes). " +
                         "If the user wants to close/exit/go back from an app, call close_app. " +
                         "If the user says something like 'band karo', 'ruk jao', 'bye', or otherwise wants to end the conversation, call end_session. " +
-                        "For general questions, just answer naturally and conversationally. Keep spoken replies concise."
+                        "For general questions, use Google Search when the answer requires current/live information (weather, news, scores, prices, etc). For general knowledge questions, answer naturally and conversationally. Keep spoken replies concise."
                     )))
                 })
-                put("tools", JSONArray().put(JSONObject().apply {
+                put("tools", JSONArray().apply {
+                    put(JSONObject().apply {
+                        put("googleSearch", JSONObject())
+                    })
+                    put(JSONObject().apply {
                     put("functionDeclarations", JSONArray().apply {
                         put(JSONObject().apply {
                             put("name", "open_app")
@@ -102,7 +106,8 @@ class GeminiLiveClient(
                             })
                         })
                     })
-                }))
+                    })
+                })
             })
         }
         ws.send(setup.toString())
