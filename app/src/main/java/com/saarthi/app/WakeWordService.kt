@@ -18,6 +18,7 @@ import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.speech.tts.TextToSpeech
+import org.json.JSONObject
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -44,6 +45,9 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
     private var tts: TextToSpeech? = null
     private var inCommandMode = false
     private var currentRecorder: AudioRecord? = null
+    private var geminiClient: GeminiLiveClient? = null
+    private var audioPlayer: AudioPlayer? = null
+    private var sessionActive = false
 
     private val wakeWords = listOf(
         "saarthi", "sarthi", "saathi", "sathi",
@@ -180,106 +184,97 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
 
     private fun triggerWakeWord(sharedRecorder: AudioRecord) {
         currentRecorder = sharedRecorder
-        updateNotification("Ji, bataiye!")
+        updateNotification("Connecting...")
         showActivatedAnimation()
         val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         vibrator.vibrate(VibrationEffect.createOneShot(300, VibrationEffect.DEFAULT_AMPLITUDE))
 
         inCommandMode = true
-        thread {
-            try {
-                var keepGoing = true
-                while (keepGoing) {
-                    val commandAudio = captureFollowUpCommand(sharedRecorder, 8000)
-                    if (commandAudio == null) {
-                        keepGoing = false
-                        break
-                    }
+        sessionActive = true
+        audioPlayer = AudioPlayer()
+        audioPlayer?.start()
 
-                    updateNotification("Samajh raha hoon...")
-                    val wavFile = File(cacheDir, "command.wav")
-                    WavWriter.writeWav(wavFile, commandAudio, VoicePrint.SAMPLE_RATE)
-                    val text = GroqApi.transcribe(wavFile)
+        val installedApps = CommandExecutor.getInstalledAppLabels(this)
 
-                    if (text.isNullOrBlank()) {
-                        updateNotification("Kuch samajh nahi aaya")
-                        continue
-                    }
-
-                    val lowerText = text.lowercase()
-                    if (lowerText.contains("band karo") || lowerText.contains("band ho jao") ||
-                        lowerText.contains("stop") || lowerText.contains("बंद करो") || lowerText.contains("रुक")) {
-                        tts?.speak("Theek hai", TextToSpeech.QUEUE_FLUSH, null, null)
-                        keepGoing = false
-                        break
-                    }
-
-                    handleCommand(text)
-                }
-            } catch (e: Exception) {
-                updateNotification("Command error: ${e.message}")
-                Thread.sleep(2000)
+        geminiClient = GeminiLiveClient(
+            onAudioChunk = { bytes -> audioPlayer?.play(bytes) },
+            onFunctionCall = { name, args, callId ->
+                handleGeminiFunctionCall(name, args, callId)
+            },
+            onTurnComplete = {
+                lastSpeechTime = System.currentTimeMillis()
+            },
+            onError = { err ->
+                updateNotification("Gemini error: $err")
+                endGeminiSession()
+            },
+            onOpen = {
+                updateNotification("Ji, bataiye!")
             }
-            hideActivatedAnimation()
-            updateNotification("Sun raha hoon...")
-            lastTriggerTime = System.currentTimeMillis()
-            inCommandMode = false
-        }
+        )
+        geminiClient?.connect(installedApps)
+
+        thread { streamAudioToGemini(sharedRecorder) }
     }
 
-    private fun handleCommand(text: String) {
-        val learned = LearnedCommands.lookup(this, text)
-        val installedApps = CommandExecutor.getInstalledAppLabels(this)
-        val interpretation = learned ?: GroqLLM.interpret(text, installedApps)
+    private var lastSpeechTime = System.currentTimeMillis()
 
-        if (interpretation == null) {
-            updateNotification("Aapne kaha: $text")
-            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
-            return
-        }
+    private fun streamAudioToGemini(recorder: AudioRecord) {
+        val chunk = ShortArray(1600)
+        lastSpeechTime = System.currentTimeMillis()
+        val sessionStart = System.currentTimeMillis()
 
-        updateNotification(interpretation.reply)
-        tts?.speak(interpretation.reply, TextToSpeech.QUEUE_FLUSH, null, null)
-
-        when (interpretation.actionType) {
-            "open_app" -> {
-                if (interpretation.target != null) {
-                    CommandExecutor.execute(this, interpretation.target)
-                    if (learned == null) {
-                        LearnedCommands.save(this, text, interpretation.actionType, interpretation.target, interpretation.reply)
-                    }
+        while (sessionActive) {
+            val n = recorder.read(chunk, 0, chunk.size)
+            if (n > 0) {
+                val bytes = ByteArray(n * 2)
+                for (i in 0 until n) {
+                    val s = chunk[i].toInt()
+                    bytes[i * 2] = (s and 0xFF).toByte()
+                    bytes[i * 2 + 1] = ((s shr 8) and 0xFF).toByte()
                 }
+                geminiClient?.sendAudioChunk(bytes)
+
+                val rms = VoicePrint.computeRMS(chunk.copyOf(n))
+                if (rms > 700.0) lastSpeechTime = System.currentTimeMillis()
+            }
+
+            if (System.currentTimeMillis() - lastSpeechTime > 8000) {
+                break
+            }
+            if (System.currentTimeMillis() - sessionStart > 120000) {
+                break
+            }
+        }
+        endGeminiSession()
+    }
+
+    private fun handleGeminiFunctionCall(name: String, args: JSONObject, callId: String) {
+        when (name) {
+            "open_app" -> {
+                val appName = args.optString("app_name", "")
+                val success = CommandExecutor.execute(this, appName)
+                geminiClient?.sendFunctionResponse(name, callId, if (success) "opened" else "app not found")
             }
             "close_app" -> {
                 CommandExecutor.goHome(this)
-                if (learned == null) {
-                    LearnedCommands.save(this, text, interpretation.actionType, interpretation.target, interpretation.reply)
-                }
+                geminiClient?.sendFunctionResponse(name, callId, "closed")
             }
-            "unknown" -> {
-                Thread.sleep(800)
-                val clarification = captureFollowUpCommand(currentRecorder!!, 8000)
-                if (clarification != null) {
-                    val wavFile = File(cacheDir, "clarify.wav")
-                    WavWriter.writeWav(wavFile, clarification, VoicePrint.SAMPLE_RATE)
-                    val clarText = GroqApi.transcribe(wavFile)
-                    if (!clarText.isNullOrBlank()) {
-                        val combined = "User originally said: \"$text\". When asked to clarify, they said: \"$clarText\". Determine the action now."
-                        val retryInterpretation = GroqLLM.interpret(combined)
-                        if (retryInterpretation != null && retryInterpretation.actionType != "unknown") {
-                            updateNotification(retryInterpretation.reply)
-                            tts?.speak(retryInterpretation.reply, TextToSpeech.QUEUE_FLUSH, null, null)
-                            if (retryInterpretation.actionType == "open_app" && retryInterpretation.target != null) {
-                                CommandExecutor.execute(this, retryInterpretation.target)
-                            } else if (retryInterpretation.actionType == "close_app") {
-                                CommandExecutor.goHome(this)
-                            }
-                            LearnedCommands.save(this, text, retryInterpretation.actionType, retryInterpretation.target, retryInterpretation.reply)
-                        }
-                    }
-                }
+            "end_session" -> {
+                geminiClient?.sendFunctionResponse(name, callId, "ending")
+                handler.postDelayed({ endGeminiSession() }, 1500)
             }
         }
+    }
+
+    private fun endGeminiSession() {
+        sessionActive = false
+        geminiClient?.close()
+        audioPlayer?.stop()
+        hideActivatedAnimation()
+        updateNotification("Sun raha hoon...")
+        lastTriggerTime = System.currentTimeMillis()
+        inCommandMode = false
     }
 
     private fun captureFollowUpCommand(recorder: AudioRecord, timeoutMs: Long): ShortArray? {

@@ -19,6 +19,8 @@ android {
 
     defaultConfig {
         buildConfigField "String", "GROQ_API_KEY", "\"$groqApiKey\""
+        def geminiApiKey = localProperties.getProperty('GEMINI_API_KEY', '')
+        buildConfigField "String", "GEMINI_API_KEY", "\"$geminiApiKey\""
         applicationId "com.saarthi.app"
         minSdk 26
         targetSdk 34
