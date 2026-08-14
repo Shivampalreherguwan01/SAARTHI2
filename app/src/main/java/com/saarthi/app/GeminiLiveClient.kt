@@ -54,6 +54,11 @@ class GeminiLiveClient(
                 put("generationConfig", JSONObject().apply {
                     put("responseModalities", JSONArray().put("AUDIO"))
                 })
+                put("realtimeInputConfig", JSONObject().apply {
+                    put("automaticActivityDetection", JSONObject().apply {
+                        put("disabled", false)
+                    })
+                })
                 put("systemInstruction", JSONObject().apply {
                     put("parts", JSONArray().put(JSONObject().put("text",
                         "You are Saarthi, a helpful voice assistant on the user's Android phone. " +
