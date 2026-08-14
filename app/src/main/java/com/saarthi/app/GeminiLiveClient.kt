@@ -157,10 +157,10 @@ class GeminiLiveClient(
         val b64 = Base64.encodeToString(pcmBytes, Base64.NO_WRAP)
         val msg = JSONObject().apply {
             put("realtimeInput", JSONObject().apply {
-                put("mediaChunks", JSONArray().put(JSONObject().apply {
+                put("audio", JSONObject().apply {
                     put("mimeType", "audio/pcm;rate=16000")
                     put("data", b64)
-                }))
+                })
             })
         }
         webSocket?.send(msg.toString())
