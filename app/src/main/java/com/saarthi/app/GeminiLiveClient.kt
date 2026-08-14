@@ -38,7 +38,8 @@ class GeminiLiveClient(
             }
 
             override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
-                onError("Connection failed: ${t.message}")
+                val bodyStr = try { response?.body?.string() } catch (e: Exception) { null }
+                onError("Connection failed: ${t.message} | ${response?.code} | $bodyStr")
             }
 
             override fun onClosed(ws: WebSocket, code: Int, reason: String) {
@@ -145,6 +146,9 @@ class GeminiLiveClient(
             }
         } catch (e: Exception) {
             Log.e("GeminiLive", "parse error: ${e.message}")
+            if (text.contains("error", ignoreCase = true)) {
+                onError("Server said: ${text.take(200)}")
+            }
         }
     }
 
