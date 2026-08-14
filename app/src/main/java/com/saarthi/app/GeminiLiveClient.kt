@@ -50,7 +50,7 @@ class GeminiLiveClient(
         val appsListStr = installedApps.joinToString(", ")
         val setup = JSONObject().apply {
             put("setup", JSONObject().apply {
-                put("model", "models/gemini-2.5-flash-native-audio-preview-12-2025")
+                put("model", "models/gemini-3.1-flash-live-preview")
                 put("generationConfig", JSONObject().apply {
                     put("responseModalities", JSONArray().put("AUDIO"))
                 })
