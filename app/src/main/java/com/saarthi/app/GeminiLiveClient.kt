@@ -74,9 +74,6 @@ class GeminiLiveClient(
                 })
                 put("tools", JSONArray().apply {
                     put(JSONObject().apply {
-                        put("googleSearch", JSONObject())
-                    })
-                    put(JSONObject().apply {
                     put("functionDeclarations", JSONArray().apply {
                         put(JSONObject().apply {
                             put("name", "open_app")
