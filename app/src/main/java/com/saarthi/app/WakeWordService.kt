@@ -15,6 +15,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.speech.tts.TextToSpeech
@@ -48,6 +49,7 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
     private var geminiClient: GeminiLiveClient? = null
     private var audioPlayer: AudioPlayer? = null
     private var sessionActive = false
+    private var wakeLock: PowerManager.WakeLock? = null
 
     private val wakeWords = listOf(
         "saarthi", "sarthi", "saathi", "sathi",
@@ -191,6 +193,14 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
 
         inCommandMode = true
         sessionActive = true
+
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        wakeLock = powerManager.newWakeLock(
+            PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
+            "Saarthi::SessionWakeLock"
+        )
+        wakeLock?.acquire(2 * 60 * 1000L)
+
         audioPlayer = AudioPlayer()
         audioPlayer?.start()
 
@@ -276,6 +286,10 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
 
     private fun endGeminiSession() {
         sessionActive = false
+        try {
+            if (wakeLock?.isHeld == true) wakeLock?.release()
+        } catch (e: Exception) {
+        }
         geminiClient?.close()
         audioPlayer?.stop()
         hideActivatedAnimation()
