@@ -260,6 +260,13 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
                 CommandExecutor.goHome(this)
                 geminiClient?.sendFunctionResponse(name, callId, "closed")
             }
+            "search_web" -> {
+                val query = args.optString("query", "")
+                thread {
+                    val result = GroqSearch.search(query) ?: "Search failed, no results found"
+                    geminiClient?.sendFunctionResponse(name, callId, result)
+                }
+            }
             "end_session" -> {
                 geminiClient?.sendFunctionResponse(name, callId, "ending")
                 handler.postDelayed({ endGeminiSession() }, 1500)

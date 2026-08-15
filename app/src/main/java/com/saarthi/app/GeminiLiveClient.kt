@@ -95,6 +95,17 @@ class GeminiLiveClient(
                             })
                         })
                         put(JSONObject().apply {
+                            put("name", "search_web")
+                            put("description", "Search the internet for current/live information like weather, news, scores, prices, or any fact you are not sure about")
+                            put("parameters", JSONObject().apply {
+                                put("type", "object")
+                                put("properties", JSONObject().apply {
+                                    put("query", JSONObject().put("type", "string"))
+                                })
+                                put("required", JSONArray().put("query"))
+                            })
+                        })
+                        put(JSONObject().apply {
                             put("name", "end_session")
                             put("description", "End the conversation when user wants to stop talking")
                             put("parameters", JSONObject().apply {
