@@ -69,6 +69,7 @@ class GeminiLiveClient(
                         "If the user wants to open an app, call the open_app function with the exact app name from the list (match tolerantly for spelling/pronunciation mistakes). " +
                         "If the user wants to close/exit/go back from an app, call close_app. " +
                         "If the user says something like 'band karo', 'ruk jao', 'bye', or otherwise wants to end the conversation, call end_session. " +
+                        "You DO have the ability to see the phone's screen via the read_screen function. Whenever the user asks what app is open, what is on screen, where they are, or asks about visible content, you MUST call read_screen first before answering — never say you cannot see the screen. " +
                         "For general questions, use Google Search when the answer requires current/live information (weather, news, scores, prices, etc). For general knowledge questions, answer naturally and conversationally. Keep spoken replies concise."
                     )))
                 })

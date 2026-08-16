@@ -36,6 +36,12 @@ class MainActivity : AppCompatActivity() {
     private val overlayLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
+        checkAccessibilityAndStart()
+    }
+
+    private val accessibilityLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
         startService()
     }
 
@@ -114,6 +120,23 @@ class MainActivity : AppCompatActivity() {
                 Uri.parse("package:$packageName")
             )
             overlayLauncher.launch(intent)
+        } else {
+            checkAccessibilityAndStart()
+        }
+    }
+
+    private fun isAccessibilityServiceEnabled(): Boolean {
+        val enabledServices = Settings.Secure.getString(
+            contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        ) ?: ""
+        return enabledServices.contains("${packageName}/${packageName}.ScreenReaderService")
+    }
+
+    private fun checkAccessibilityAndStart() {
+        if (!isAccessibilityServiceEnabled()) {
+            Toast.makeText(this, "Saarthi ko screen dekhne ki permission dein aur wapas aayein", Toast.LENGTH_LONG).show()
+            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+            accessibilityLauncher.launch(intent)
         } else {
             startService()
         }
