@@ -95,6 +95,14 @@ class GeminiLiveClient(
                             })
                         })
                         put(JSONObject().apply {
+                            put("name", "read_screen")
+                            put("description", "Read what is currently visible on the phone's screen (which app is open, what text/content is showing). Use this when the user asks about what's on screen, what app they're in, or asks you to read/summarize something visible.")
+                            put("parameters", JSONObject().apply {
+                                put("type", "object")
+                                put("properties", JSONObject())
+                            })
+                        })
+                        put(JSONObject().apply {
                             put("name", "search_web")
                             put("description", "Search the internet for current/live information like weather, news, scores, prices, or any fact you are not sure about")
                             put("parameters", JSONObject().apply {

@@ -270,6 +270,15 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
                 CommandExecutor.goHome(this)
                 geminiClient?.sendFunctionResponse(name, callId, "closed")
             }
+            "read_screen" -> {
+                val screenService = ScreenReaderService.instance
+                val result = if (screenService != null) {
+                    "Current app: ${screenService.getCurrentAppName()}. Screen content: ${screenService.getScreenText()}"
+                } else {
+                    "Screen reading permission not enabled"
+                }
+                geminiClient?.sendFunctionResponse(name, callId, result)
+            }
             "search_web" -> {
                 val query = args.optString("query", "")
                 thread {
