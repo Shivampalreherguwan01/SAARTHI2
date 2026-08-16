@@ -199,7 +199,7 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
             PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
             "Saarthi::SessionWakeLock"
         )
-        wakeLock?.acquire(2 * 60 * 1000L)
+        wakeLock?.acquire(10 * 60 * 1000L)
 
         audioPlayer = AudioPlayer()
         audioPlayer?.start()
