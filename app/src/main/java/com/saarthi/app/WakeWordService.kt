@@ -277,6 +277,7 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
                 } else {
                     "Screen reading permission not enabled"
                 }
+                updateNotification("Screen result: ${result.take(150)}")
                 geminiClient?.sendFunctionResponse(name, callId, result)
             }
             "search_web" -> {
