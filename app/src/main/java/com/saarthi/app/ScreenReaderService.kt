@@ -26,16 +26,32 @@ class ScreenReaderService : AccessibilityService() {
         super.onDestroy()
     }
 
+    private fun getActiveRoot(): AccessibilityNodeInfo? {
+        rootInActiveWindow?.let { return it }
+        try {
+            for (window in windows) {
+                if (window.isActive || window.isFocused) {
+                    window.root?.let { return it }
+                }
+            }
+            for (window in windows) {
+                window.root?.let { return it }
+            }
+        } catch (e: Exception) {
+        }
+        return null
+    }
+
     fun getCurrentAppName(): String {
         return try {
-            rootInActiveWindow?.packageName?.toString() ?: "unknown"
+            getActiveRoot()?.packageName?.toString() ?: "unknown"
         } catch (e: Exception) {
             "unknown"
         }
     }
 
     fun getScreenText(): String {
-        val root = rootInActiveWindow ?: return "Screen padh nahi paya"
+        val root = getActiveRoot() ?: return "Screen padh nahi paya"
         val texts = mutableListOf<String>()
         extractText(root, texts, 0)
         return if (texts.isEmpty()) "Screen par koi text nahi mila" else texts.joinToString(" | ").take(3000)
